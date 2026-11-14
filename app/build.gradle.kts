@@ -16,6 +16,10 @@ android {
         versionName = "1.0.0"
     }
 
+    base {
+        archivesName.set("LegionSwitchDock")
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
