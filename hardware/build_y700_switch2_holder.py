@@ -52,16 +52,20 @@ def make_box(x0: float, x1: float, y0: float, y1: float, z0: float, z1: float) -
 
 
 def main():
-    # 1. Load Y700 holder and trim off Switch 1 rails beyond |Y| = 106.5 mm
+    # 1. Load Y700 holder, trim off Switch 1 rails beyond |Y| = 106.5 mm, and flatten bottom
     y700_tm = load_3mf_object(Y700_3MF, "3D/Objects/object_2.model")
     y700_mf = to_manifold(y700_tm)
-    trim_box = make_box(-100.0, 100.0, -106.5, 106.5, -25.0, 25.0)
-    y700_trimmed = y700_mf ^ trim_box
+    y700_trimmed = (y700_mf ^ make_box(-100.0, 100.0, -106.5, 106.5, -6.40, 25.0)).translate([0.0, 0.0, 6.40])
 
-    # Widen the Power + Volume button cutout on the +X wall (Y in [30, 88], Z in [-1.5, 10.0])
-    # so buttons are easy to press with a fingertip
-    button_cutout = make_box(63.0, 72.0, 30.0, 88.0, -1.5, 10.0)
-    y700_trimmed = y700_trimmed - button_cutout
+    # Replace the buggy tilted/chamfered backplate (Z = 0..3.25 mm) with a clean vertical
+    # extrusion of the Z=0.05 cross-section so there are ZERO internal cavities or overhangs
+    backplate_solid = m3d.Manifold.extrude(y700_trimmed.slice(0.05), 3.55)
+    upper_walls = y700_trimmed ^ make_box(-100.0, 100.0, -106.5, 106.5, 3.50, 25.0)
+    y700_clean = backplate_solid + upper_walls
+
+    # Widen the Power + Volume button cutout on the +X wall (Y in [30, 88], Z in [3.2, 16.0])
+    button_cutout = make_box(63.0, 72.0, 30.0, 88.0, 3.2, 16.0)
+    y700_clean = y700_clean - button_cutout
 
     # 2. Load Joy-Con 2 grip body
     jc2_tm = load_3mf_object(JC2_3MF, "3D/Objects/object_1.model")
@@ -76,7 +80,8 @@ def main():
     # Puts + / - and 4 LED holes on the FRONT (+Z screen side), + on Right, - on Left [det = +1]
     vr = rail_r_tm.vertices.copy()
     rail_r_tm.vertices = np.column_stack([-(vr[:, 2] - z_mid_r), vr[:, 0] - 16.5 + 105.0, -vr[:, 1]])
-    rail_r_final = to_manifold(rail_r_tm)
+    # Shift rails to match the +6.40 Z offset of y700_clean, union, and plane-cut Z >= 0.0
+    rail_r_final = to_manifold(rail_r_tm).translate([0.0, 0.0, 6.40])
 
     # Left rail: rotate +15 deg around Y so -X is flat outward rail normal
     jc2_l = jc2_tm.copy()
@@ -87,13 +92,10 @@ def main():
     # Map (x, y, z) -> (-(z - z_mid_l), x + 16.5 - 105.0, -y)
     vl = rail_l_tm.vertices.copy()
     rail_l_tm.vertices = np.column_stack([-(vl[:, 2] - z_mid_l), vl[:, 0] + 16.5 - 105.0, -vl[:, 1]])
-    rail_l_final = to_manifold(rail_l_tm)
+    rail_l_final = to_manifold(rail_l_tm).translate([0.0, 0.0, 6.40])
 
-    # 3. Boolean union all three parts, then plane-cut Z >= -6.40 and shift to Z = 0.0
-    # to eliminate shallow bottom-chamfer overhangs around the vents and keep the entire
-    # backplate + both rails 100% flush on the build plate (3.4mm backplate remaining)
-    combined = (y700_trimmed + rail_r_final + rail_l_final) ^ make_box(-100.0, 100.0, -130.0, 130.0, -6.40, 25.0)
-    combined = combined.translate([0.0, 0.0, 6.40])
+    # 3. Boolean union all three parts, then plane-cut Z >= 0.0
+    combined = (y700_clean + rail_r_final + rail_l_final) ^ make_box(-100.0, 100.0, -130.0, 130.0, 0.0, 25.0)
     out_tm = from_manifold(combined)
 
     # Export as indexed 3MF (zero STL float32 vertex-pinch) and binary STL
