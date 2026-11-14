@@ -72,10 +72,10 @@ def main():
     rail_r_mf = to_manifold(jc2_r) ^ make_box(16.5, 35.0, -10.0, 10.0, -65.0, 70.0)
     rail_r_tm = from_manifold(rail_r_mf)
     z_mid_r = (rail_r_tm.bounds[0][2] + rail_r_tm.bounds[1][2]) / 2.0
-    # Map (x, y, z) -> (-(z - z_mid_r), -(x - 16.5 + 105.0), y)
-    # Swaps sides (+Y -> -Y) and flips top/bottom (+X -> -X) [180 deg around Z, det = +1]
+    # Map (x, y, z) -> (-(z - z_mid_r), x - 16.5 + 105.0, -y)
+    # Puts + / - and 4 LED holes on the FRONT (+Z screen side), + on Right, - on Left [det = +1]
     vr = rail_r_tm.vertices.copy()
-    rail_r_tm.vertices = np.column_stack([-(vr[:, 2] - z_mid_r), -(vr[:, 0] - 16.5 + 105.0), vr[:, 1]])
+    rail_r_tm.vertices = np.column_stack([-(vr[:, 2] - z_mid_r), vr[:, 0] - 16.5 + 105.0, -vr[:, 1]])
     rail_r_final = to_manifold(rail_r_tm)
 
     # Left rail: rotate +15 deg around Y so -X is flat outward rail normal
@@ -84,10 +84,9 @@ def main():
     rail_l_mf = to_manifold(jc2_l) ^ make_box(-35.0, -16.5, -10.0, 10.0, -65.0, 70.0)
     rail_l_tm = from_manifold(rail_l_mf)
     z_mid_l = (rail_l_tm.bounds[0][2] + rail_l_tm.bounds[1][2]) / 2.0
-    # Map (x, y, z) -> (-(z - z_mid_l), -(x + 16.5 - 105.0), y)
-    # Swaps sides (-Y -> +Y) and flips top/bottom (+X -> -X) [180 deg around Z, det = +1]
+    # Map (x, y, z) -> (-(z - z_mid_l), x + 16.5 - 105.0, -y)
     vl = rail_l_tm.vertices.copy()
-    rail_l_tm.vertices = np.column_stack([-(vl[:, 2] - z_mid_l), -(vl[:, 0] + 16.5 - 105.0), vl[:, 1]])
+    rail_l_tm.vertices = np.column_stack([-(vl[:, 2] - z_mid_l), vl[:, 0] + 16.5 - 105.0, -vl[:, 1]])
     rail_l_final = to_manifold(rail_l_tm)
 
     # 3. Boolean union all three parts
