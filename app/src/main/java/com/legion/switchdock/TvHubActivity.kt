@@ -4,18 +4,21 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.hardware.input.InputManager
+import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import android.os.BatteryManager
 import android.os.Bundle
+import android.provider.Settings
 import android.view.Display
-import android.view.InputDevice
 import android.view.KeyEvent
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -49,6 +52,8 @@ import androidx.compose.material.icons.rounded.BatteryFull
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Gamepad
 import androidx.compose.material.icons.rounded.Lan
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Thermostat
 import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.Icon
@@ -56,10 +61,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -75,6 +80,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -85,14 +91,18 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.legion.switchdock.data.AppEntry
 import com.legion.switchdock.data.AppRepository
+import com.legion.switchdock.data.DockHealthMonitor
+import com.legion.switchdock.data.DockHealthSnapshot
 import com.legion.switchdock.data.DockPreferences
 import com.legion.switchdock.display.ExternalDisplayHelper
+import com.legion.switchdock.media.SwitchAudioFeedback
 import com.legion.switchdock.service.DockMonitorService
 import com.legion.switchdock.shizuku.ShizukuHelper
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 
 class TvHubActivity : ComponentActivity() {
 
@@ -108,6 +118,7 @@ class TvHubActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemBars()
 
         targetDisplayId = intent.getIntExtra(
@@ -154,6 +165,7 @@ class TvHubActivity : ComponentActivity() {
     }
 
     private fun launchAppOnTv(app: AppEntry) {
+        SwitchAudioFeedback.playSelect(this)
         val prefs = DockPreferences(this)
         val externalId = ExternalDisplayHelper.findExternalDisplay(this)?.displayId ?: targetDisplayId
 
@@ -180,15 +192,29 @@ private fun SwitchTvHubScreen(
     var allApps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
     var pinnedApps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
     var showAllAppsDrawer by remember { mutableStateOf(false) }
+    var showQuickMenu by remember { mutableStateOf(false) }
+    var isIdleDimmed by remember { mutableStateOf(false) }
+    var lastInteractionMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
     var focusedTitle by remember { mutableStateOf("Legion Switch Hub") }
     var focusedPackage by remember { mutableStateOf<String?>(null) }
 
     var currentTime by remember { mutableStateOf("") }
-    var batteryPct by remember { mutableIntStateOf(100) }
-    var isCharging by remember { mutableStateOf(false) }
-    var hasController by remember { mutableStateOf(false) }
+    var currentDate by remember { mutableStateOf("") }
     var networkType by remember { mutableStateOf("Wi-Fi") }
     var displaySummary by remember { mutableStateOf("TV Mode") }
+    var health by remember {
+        mutableStateOf(
+            DockHealthSnapshot(
+                batteryPercent = 100,
+                isCharging = false,
+                temperatureC = 30.0f,
+                wattsEstimate = 0f,
+                isThermalWarning = false,
+                controllers = emptyList()
+            )
+        )
+    }
 
     val firstCardFocus = remember { FocusRequester() }
 
@@ -204,23 +230,18 @@ private fun SwitchTvHubScreen(
         runCatching { firstCardFocus.requestFocus() }
     }
 
-    // Live status polling (clock, battery, controller, network, display mode)
+    // Live status polling (clock, battery/thermals, controllers, network, display mode, idle timer)
     LaunchedEffect(Unit) {
         val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
+        val dateFormat = SimpleDateFormat("EEE, MMM d", Locale.getDefault())
+        val idleTimeoutMs = 5 * 60 * 1000L
+
         while (true) {
-            currentTime = timeFormat.format(Date())
+            val nowDate = Date()
+            currentTime = timeFormat.format(nowDate)
+            currentDate = dateFormat.format(nowDate)
 
-            val bm = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
-            batteryPct = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).coerceIn(0, 100)
-            isCharging = bm.isCharging
-
-            val im = context.getSystemService(Context.INPUT_SERVICE) as InputManager
-            hasController = im.inputDeviceIds.any { id ->
-                val dev = im.getInputDevice(id) ?: return@any false
-                val src = dev.sources
-                (src and InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD ||
-                    (src and InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK
-            }
+            health = DockHealthMonitor.readSnapshot(context)
 
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
             val caps = cm.getNetworkCapabilities(cm.activeNetwork)
@@ -231,14 +252,16 @@ private fun SwitchTvHubScreen(
             }
 
             val ext = ExternalDisplayHelper.findExternalDisplay(context)
-            displaySummary = ext?.summary ?: "Preview (${targetDisplayId})"
+            displaySummary = ext?.summary ?: "Preview ($targetDisplayId)"
+
+            if (prefs.idleDimmerEnabled && !isIdleDimmed &&
+                System.currentTimeMillis() - lastInteractionMs >= idleTimeoutMs
+            ) {
+                isIdleDimmed = true
+            }
 
             delay(2000)
         }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose { }
     }
 
     Box(
@@ -250,31 +273,78 @@ private fun SwitchTvHubScreen(
                 )
             )
             .onPreviewKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                when (event.nativeKeyEvent.keyCode) {
-                    KeyEvent.KEYCODE_BUTTON_Y -> {
-                        showAllAppsDrawer = !showAllAppsDrawer
-                        true
+                if (event.type == KeyEventType.KeyDown) {
+                    lastInteractionMs = System.currentTimeMillis()
+                    if (isIdleDimmed) {
+                        isIdleDimmed = false
+                        SwitchAudioFeedback.playMenu(context)
+                        return@onPreviewKeyEvent true
                     }
-                    KeyEvent.KEYCODE_BUTTON_X -> {
-                        val pkg = focusedPackage
-                        if (pkg != null && !showAllAppsDrawer) {
-                            prefs.togglePinnedPackage(pkg)
-                            reloadApps()
+
+                    when (event.nativeKeyEvent.keyCode) {
+                        KeyEvent.KEYCODE_BUTTON_START,
+                        KeyEvent.KEYCODE_MENU -> {
+                            showQuickMenu = !showQuickMenu
+                            if (showQuickMenu) SwitchAudioFeedback.playMenu(context)
+                            else SwitchAudioFeedback.playBack(context)
                             true
-                        } else {
-                            false
                         }
-                    }
-                    KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK -> {
-                        if (showAllAppsDrawer) {
-                            showAllAppsDrawer = false
-                            true
-                        } else {
-                            false
+                        KeyEvent.KEYCODE_BUTTON_Y -> {
+                            if (!showQuickMenu) {
+                                showAllAppsDrawer = !showAllAppsDrawer
+                                if (showAllAppsDrawer) SwitchAudioFeedback.playMenu(context)
+                                else SwitchAudioFeedback.playBack(context)
+                                true
+                            } else false
                         }
+                        KeyEvent.KEYCODE_BUTTON_X -> {
+                            val pkg = focusedPackage
+                            if (pkg != null && !showAllAppsDrawer && !showQuickMenu) {
+                                prefs.togglePinnedPackage(pkg)
+                                SwitchAudioFeedback.playSelect(context)
+                                reloadApps()
+                                true
+                            } else false
+                        }
+                        KeyEvent.KEYCODE_BUTTON_L1 -> {
+                            val pkg = focusedPackage
+                            if (pkg != null && !showAllAppsDrawer && !showQuickMenu) {
+                                if (prefs.movePinnedPackage(pkg, -1)) {
+                                    SwitchAudioFeedback.playMove(context)
+                                    reloadApps()
+                                }
+                                true
+                            } else false
+                        }
+                        KeyEvent.KEYCODE_BUTTON_R1 -> {
+                            val pkg = focusedPackage
+                            if (pkg != null && !showAllAppsDrawer && !showQuickMenu) {
+                                if (prefs.movePinnedPackage(pkg, +1)) {
+                                    SwitchAudioFeedback.playMove(context)
+                                    reloadApps()
+                                }
+                                true
+                            } else false
+                        }
+                        KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK -> {
+                            when {
+                                showQuickMenu -> {
+                                    showQuickMenu = false
+                                    SwitchAudioFeedback.playBack(context)
+                                    true
+                                }
+                                showAllAppsDrawer -> {
+                                    showAllAppsDrawer = false
+                                    SwitchAudioFeedback.playBack(context)
+                                    true
+                                }
+                                else -> false
+                            }
+                        }
+                        else -> false
                     }
-                    else -> false
+                } else {
+                    false
                 }
             }
     ) {
@@ -292,7 +362,7 @@ private fun SwitchTvHubScreen(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Surface(
                         color = Color(0xFF00E5FF).copy(alpha = 0.16f),
@@ -325,13 +395,51 @@ private fun SwitchTvHubScreen(
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
                     )
+
+                    if (health.isThermalWarning && prefs.thermalWarningEnabled) {
+                        Surface(
+                            color = Color(0xFFF59E0B).copy(alpha = 0.18f),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, Color(0xFFF59E0B))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Thermostat,
+                                    contentDescription = "High Temp",
+                                    tint = Color(0xFFF59E0B),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "${String.format(Locale.US, "%.1f", health.temperatureC)}°C • Bypass Charging Recommended",
+                                    color = Color(0xFFFBBF24),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
                 }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(18.dp)
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    if (hasController) {
+                    if (health.controllers.isNotEmpty()) {
+                        val firstCtrl = health.controllers.first()
+                        val ctrlLabel = buildString {
+                            if (health.controllers.size > 1) {
+                                append("${health.controllers.size} Pads")
+                            } else {
+                                append("Pad")
+                            }
+                            if (firstCtrl.batteryPercent != null) {
+                                append(" ${firstCtrl.batteryPercent}%")
+                            }
+                        }
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -342,7 +450,7 @@ private fun SwitchTvHubScreen(
                                 tint = Color(0xFF4ADE80),
                                 modifier = Modifier.size(20.dp)
                             )
-                            Text("Controller", color = Color(0xFF4ADE80), fontSize = 13.sp)
+                            Text(ctrlLabel, color = Color(0xFF4ADE80), fontSize = 13.sp)
                         }
                     }
 
@@ -364,12 +472,16 @@ private fun SwitchTvHubScreen(
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Icon(
-                            if (isCharging) Icons.Rounded.BatteryChargingFull else Icons.Rounded.BatteryFull,
+                            if (health.isCharging) Icons.Rounded.BatteryChargingFull else Icons.Rounded.BatteryFull,
                             contentDescription = "Battery",
-                            tint = if (isCharging) Color(0xFF4ADE80) else Color.White,
+                            tint = if (health.isCharging) Color(0xFF4ADE80) else Color.White,
                             modifier = Modifier.size(20.dp)
                         )
-                        Text("$batteryPct%", color = Color.White, fontSize = 14.sp)
+                        Text(
+                            text = "${health.batteryPercent}% (${String.format(Locale.US, "%.0f", health.temperatureC)}°C)",
+                            color = Color.White,
+                            fontSize = 14.sp
+                        )
                     }
 
                     Text(
@@ -381,7 +493,7 @@ private fun SwitchTvHubScreen(
                 }
             }
 
-            // Center Focused Title + Horizontal Switch Card Row
+            // Center Focused Title + Horizontal 16:9 Switch Card Row
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
@@ -405,6 +517,9 @@ private fun SwitchTvHubScreen(
                             app = app,
                             modifier = if (index == 0) Modifier.focusRequester(firstCardFocus) else Modifier,
                             onFocused = {
+                                if (focusedPackage != app.packageName) {
+                                    SwitchAudioFeedback.playMove(context)
+                                }
                                 focusedTitle = app.label
                                 focusedPackage = app.packageName
                             },
@@ -418,10 +533,31 @@ private fun SwitchTvHubScreen(
                             icon = Icons.Rounded.Add,
                             accent = Color(0xFF00E5FF),
                             onFocused = {
+                                SwitchAudioFeedback.playMove(context)
                                 focusedTitle = "All Apps & Pin Manager"
                                 focusedPackage = null
                             },
-                            onClick = { showAllAppsDrawer = true }
+                            onClick = {
+                                SwitchAudioFeedback.playMenu(context)
+                                showAllAppsDrawer = true
+                            }
+                        )
+                    }
+
+                    item(key = "quick_menu_tile") {
+                        ActionTile(
+                            title = "Quick Menu",
+                            icon = Icons.Rounded.Settings,
+                            accent = Color(0xFF4ADE80),
+                            onFocused = {
+                                SwitchAudioFeedback.playMove(context)
+                                focusedTitle = "System Quick Menu"
+                                focusedPackage = null
+                            },
+                            onClick = {
+                                SwitchAudioFeedback.playMenu(context)
+                                showQuickMenu = true
+                            }
                         )
                     }
                 }
@@ -433,11 +569,12 @@ private fun SwitchTvHubScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                     ButtonPrompt("A", "Launch")
-                    ButtonPrompt("X", "Unpin Tile")
+                    ButtonPrompt("L/R", "Reorder")
+                    ButtonPrompt("X", "Unpin")
                     ButtonPrompt("Y", "All Apps")
-                    ButtonPrompt("B", "Back")
+                    ButtonPrompt("Start", "Quick Menu")
                 }
 
                 Text(
@@ -462,11 +599,71 @@ private fun SwitchTvHubScreen(
                     onLaunchApp(app)
                 },
                 onTogglePin = { app ->
+                    SwitchAudioFeedback.playSelect(context)
                     prefs.togglePinnedPackage(app.packageName)
                     reloadApps()
                 },
-                onClose = { showAllAppsDrawer = false }
+                onClose = {
+                    SwitchAudioFeedback.playBack(context)
+                    showAllAppsDrawer = false
+                }
             )
+        }
+
+        // In-Hub Switch Quick Menu Overlay
+        if (showQuickMenu) {
+            InHubQuickMenuOverlay(
+                health = health,
+                prefs = prefs,
+                onTriggerScreensaver = {
+                    showQuickMenu = false
+                    isIdleDimmed = true
+                },
+                onClose = {
+                    SwitchAudioFeedback.playBack(context)
+                    showQuickMenu = false
+                }
+            )
+        }
+
+        // 5-Minute Idle Dimmer / Screensaver Clock
+        AnimatedVisibility(
+            visible = isIdleDimmed,
+            enter = fadeIn(tween(600)),
+            exit = fadeOut(tween(250))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.90f))
+                    .clickable {
+                        lastInteractionMs = System.currentTimeMillis()
+                        isIdleDimmed = false
+                        SwitchAudioFeedback.playMenu(context)
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = currentTime,
+                        color = Color.White.copy(alpha = 0.88f),
+                        fontSize = 72.sp,
+                        fontWeight = FontWeight.Light
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "$currentDate • ${health.batteryPercent}% (${String.format(Locale.US, "%.1f", health.temperatureC)}°C)",
+                        color = Color(0xFF9BA3B4),
+                        fontSize = 18.sp
+                    )
+                    Spacer(Modifier.height(22.dp))
+                    Text(
+                        text = "Press any controller button to wake",
+                        color = Color(0xFF00E5FF).copy(alpha = 0.8f),
+                        fontSize = 14.sp
+                    )
+                }
+            }
         }
     }
 }
@@ -480,7 +677,7 @@ private fun SwitchAppTile(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.09f else 1.0f,
+        targetValue = if (isFocused) 1.08f else 1.0f,
         animationSpec = tween(140),
         label = "tileScale"
     )
@@ -498,23 +695,37 @@ private fun SwitchAppTile(
     ) {
         Box(
             modifier = Modifier
-                .size(196.dp)
-                .clip(RoundedCornerShape(24.dp))
-                .background(Color(0xFF1F2430))
+                .width(236.dp)
+                .height(148.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(Color(0xFF283042), Color(0xFF1A1F2B))
+                    )
+                )
                 .border(
                     width = if (isFocused) 4.dp else 1.5.dp,
                     color = if (isFocused) Color(0xFF00E5FF) else Color(0xFF2E3545),
-                    shape = RoundedCornerShape(24.dp)
+                    shape = RoundedCornerShape(22.dp)
                 ),
             contentAlignment = Alignment.Center
         ) {
-            Image(
-                bitmap = app.icon,
-                contentDescription = app.label,
-                modifier = Modifier
-                    .size(124.dp)
-                    .clip(RoundedCornerShape(22.dp))
-            )
+            if (app.banner != null) {
+                Image(
+                    bitmap = app.banner,
+                    contentDescription = app.label,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Image(
+                    bitmap = app.icon,
+                    contentDescription = app.label,
+                    modifier = Modifier
+                        .size(92.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                )
+            }
         }
         Spacer(modifier = Modifier.height(10.dp))
         Text(
@@ -524,7 +735,7 @@ private fun SwitchAppTile(
             fontWeight = if (isFocused) FontWeight.Bold else FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.width(190.dp)
+            modifier = Modifier.width(226.dp)
         )
     }
 }
@@ -539,7 +750,7 @@ private fun ActionTile(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.09f else 1.0f,
+        targetValue = if (isFocused) 1.08f else 1.0f,
         animationSpec = tween(140),
         label = "actionScale"
     )
@@ -557,13 +768,14 @@ private fun ActionTile(
     ) {
         Box(
             modifier = Modifier
-                .size(196.dp)
-                .clip(RoundedCornerShape(24.dp))
+                .width(180.dp)
+                .height(148.dp)
+                .clip(RoundedCornerShape(22.dp))
                 .background(Color(0xFF191D27))
                 .border(
                     width = if (isFocused) 4.dp else 1.5.dp,
                     color = if (isFocused) accent else Color(0xFF2E3545),
-                    shape = RoundedCornerShape(24.dp)
+                    shape = RoundedCornerShape(22.dp)
                 ),
             contentAlignment = Alignment.Center
         ) {
@@ -571,7 +783,7 @@ private fun ActionTile(
                 imageVector = icon,
                 contentDescription = title,
                 tint = if (isFocused) accent else Color(0xFF9BA3B4),
-                modifier = Modifier.size(64.dp)
+                modifier = Modifier.size(58.dp)
             )
         }
         Spacer(modifier = Modifier.height(10.dp))
@@ -582,6 +794,189 @@ private fun ActionTile(
             fontWeight = if (isFocused) FontWeight.Bold else FontWeight.Medium
         )
     }
+}
+
+@Composable
+private fun InHubQuickMenuOverlay(
+    health: DockHealthSnapshot,
+    prefs: DockPreferences,
+    onTriggerScreensaver: () -> Unit,
+    onClose: () -> Unit
+) {
+    val context = LocalContext.current
+    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+    var volumePct by remember { mutableIntStateOf(readVolumePct(audioManager)) }
+    var isMuted by remember { mutableStateOf(audioManager.isStreamMute(AudioManager.STREAM_MUSIC)) }
+    var uiSounds by remember { mutableStateOf(prefs.uiSoundsEnabled) }
+    var idleDimmer by remember { mutableStateOf(prefs.idleDimmerEnabled) }
+    val firstItemFocus = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        delay(80)
+        runCatching { firstItemFocus.requestFocus() }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xB8080A0E))
+            .clickable { onClose() },
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            color = Color(0xFF141821),
+            shape = RoundedCornerShape(22.dp),
+            border = BorderStroke(2.dp, Color(0xFF00E5FF)),
+            modifier = Modifier
+                .width(500.dp)
+                .clickable(enabled = false) {}
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "LEGION QUICK MENU",
+                    color = Color(0xFF00E5FF),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                val chargeLabel = if (health.isCharging) "Charging ${health.wattsEstimate}W" else "Discharging"
+                Text(
+                    text = "${health.batteryPercent}% • ${String.format(Locale.US, "%.1f", health.temperatureC)}°C • $chargeLabel",
+                    color = if (health.isThermalWarning) Color(0xFFF59E0B) else Color(0xFF9BA3B4),
+                    fontSize = 13.sp
+                )
+
+                Text(
+                    text = if (isMuted) "Media Volume: MUTED ($volumePct%)" else "Media Volume: $volumePct%",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    QuickMenuButton(
+                        label = "Vol -",
+                        modifier = Modifier.weight(1f).focusRequester(firstItemFocus),
+                        onClick = {
+                            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0)
+                            volumePct = readVolumePct(audioManager)
+                            isMuted = audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
+                        }
+                    )
+                    QuickMenuButton(
+                        label = "Vol +",
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0)
+                            volumePct = readVolumePct(audioManager)
+                            isMuted = audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
+                        }
+                    )
+                    QuickMenuButton(
+                        label = if (isMuted) "Unmute" else "Mute",
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, 0)
+                            volumePct = readVolumePct(audioManager)
+                            isMuted = audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
+                        }
+                    )
+                }
+
+                QuickMenuButton(
+                    label = "Audio Output / Bluetooth Settings",
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        onClose()
+                        context.startActivity(
+                            Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                )
+                QuickMenuButton(
+                    label = "UI Navigation Sounds: ${if (uiSounds) "ON" else "OFF"}",
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        uiSounds = !uiSounds
+                        prefs.uiSoundsEnabled = uiSounds
+                    }
+                )
+                QuickMenuButton(
+                    label = "5-Min Idle Screensaver: ${if (idleDimmer) "ON" else "OFF"}",
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        idleDimmer = !idleDimmer
+                        prefs.idleDimmerEnabled = idleDimmer
+                    }
+                )
+                QuickMenuButton(
+                    label = "Screensaver Now",
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onTriggerScreensaver
+                )
+                QuickMenuButton(
+                    label = "Bypass Charging / Game Assistant",
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        onClose()
+                        DockHealthMonitor.openBypassChargingSettings(context)
+                    }
+                )
+                QuickMenuButton(
+                    label = "Close Menu (B)",
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onClose
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickMenuButton(
+    label: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val context = LocalContext.current
+    var isFocused by remember { mutableStateOf(false) }
+
+    Surface(
+        color = if (isFocused) Color(0xFF004456) else Color(0xFF1F2430),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(
+            width = if (isFocused) 2.dp else 1.dp,
+            color = if (isFocused) Color(0xFF00E5FF) else Color(0xFF2E3545)
+        ),
+        modifier = modifier
+            .onFocusChanged {
+                isFocused = it.isFocused
+                if (it.isFocused) SwitchAudioFeedback.playMove(context)
+            }
+            .focusable()
+            .clickable {
+                SwitchAudioFeedback.playSelect(context)
+                onClick()
+            }
+    ) {
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp)
+        )
+    }
+}
+
+private fun readVolumePct(audioManager: AudioManager): Int {
+    val cur = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+    val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+    return ((cur.toFloat() / max) * 100f).roundToInt()
 }
 
 @Composable
@@ -719,16 +1114,17 @@ private fun ButtonPrompt(button: String, label: String) {
     ) {
         Box(
             modifier = Modifier
-                .size(26.dp)
-                .clip(CircleShape)
-                .background(Color.White),
+                .height(26.dp)
+                .clip(RoundedCornerShape(13.dp))
+                .background(Color.White)
+                .padding(horizontal = 8.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = button,
                 color = Color(0xFF101216),
                 fontWeight = FontWeight.ExtraBold,
-                fontSize = 13.sp
+                fontSize = 12.sp
             )
         }
         Text(text = label, color = Color(0xFFD1D5DB), fontSize = 14.sp)

@@ -5,17 +5,22 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.net.Uri
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import java.io.File
+import java.io.FileOutputStream
 
 data class AppEntry(
     val packageName: String,
     val label: String,
     val icon: ImageBitmap,
-    val isSystemApp: Boolean
+    val isSystemApp: Boolean,
+    val banner: ImageBitmap? = null
 )
 
 object AppRepository {
@@ -61,7 +66,8 @@ object AppRepository {
                     packageName = pkg,
                     label = label,
                     icon = drawableToImageBitmap(drawable),
-                    isSystemApp = isSystem
+                    isSystemApp = isSystem,
+                    banner = loadCustomBanner(context, pkg)
                 )
             }
             .sortedBy { it.label.lowercase() }
@@ -115,5 +121,48 @@ object AppRepository {
         drawable.setBounds(0, 0, canvas.width, canvas.height)
         drawable.draw(canvas)
         return bitmap.asImageBitmap()
+    }
+
+    private fun bannerFile(context: Context, packageName: String): File {
+        val dir = File(context.filesDir, "banners")
+        if (!dir.exists()) dir.mkdirs()
+        return File(dir, "$packageName.png")
+    }
+
+    fun loadCustomBanner(context: Context, packageName: String): ImageBitmap? {
+        val file = bannerFile(context, packageName)
+        if (!file.exists()) return null
+        return runCatching {
+            BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
+        }.getOrNull()
+    }
+
+    fun saveCustomBanner(context: Context, packageName: String, uri: Uri): Boolean {
+        return runCatching {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                val decoded = BitmapFactory.decodeStream(input) ?: return false
+                // Downscale large images to max 960x540 so TV Hub stays snappy
+                val maxW = 960
+                val maxH = 540
+                val scaled = if (decoded.width > maxW || decoded.height > maxH) {
+                    val ratio = minOf(maxW.toFloat() / decoded.width, maxH.toFloat() / decoded.height)
+                    Bitmap.createScaledBitmap(
+                        decoded,
+                        (decoded.width * ratio).toInt().coerceAtLeast(1),
+                        (decoded.height * ratio).toInt().coerceAtLeast(1),
+                        true
+                    )
+                } else {
+                    decoded
+                }
+                FileOutputStream(bannerFile(context, packageName)).use { out ->
+                    scaled.compress(Bitmap.CompressFormat.PNG, 92, out)
+                }
+            } != null
+        }.getOrDefault(false)
+    }
+
+    fun clearCustomBanner(context: Context, packageName: String) {
+        runCatching { bannerFile(context, packageName).delete() }
     }
 }

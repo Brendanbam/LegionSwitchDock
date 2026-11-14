@@ -27,6 +27,18 @@ class DockPreferences(context: Context) {
         get() = prefs.getBoolean(KEY_SHIZUKU_FORCE_RELAUNCH, true)
         set(value) = prefs.edit().putBoolean(KEY_SHIZUKU_FORCE_RELAUNCH, value).apply()
 
+    var uiSoundsEnabled: Boolean
+        get() = prefs.getBoolean(KEY_UI_SOUNDS, true)
+        set(value) = prefs.edit().putBoolean(KEY_UI_SOUNDS, value).apply()
+
+    var idleDimmerEnabled: Boolean
+        get() = prefs.getBoolean(KEY_IDLE_DIMMER, true)
+        set(value) = prefs.edit().putBoolean(KEY_IDLE_DIMMER, value).apply()
+
+    var thermalWarningEnabled: Boolean
+        get() = prefs.getBoolean(KEY_THERMAL_WARNING, true)
+        set(value) = prefs.edit().putBoolean(KEY_THERMAL_WARNING, value).apply()
+
     var hasInitializedPins: Boolean
         get() = prefs.getBoolean(KEY_PINS_INITIALIZED, false)
         set(value) = prefs.edit().putBoolean(KEY_PINS_INITIALIZED, value).apply()
@@ -54,12 +66,27 @@ class DockPreferences(context: Context) {
         return nowPinned
     }
 
+    fun movePinnedPackage(packageName: String, delta: Int): Boolean {
+        val current = getPinnedPackages().toMutableList()
+        val index = current.indexOf(packageName)
+        if (index == -1) return false
+        val targetIndex = (index + delta).coerceIn(0, current.lastIndex)
+        if (targetIndex == index) return false
+        val item = current.removeAt(index)
+        current.add(targetIndex, item)
+        setPinnedPackages(current)
+        return true
+    }
+
     companion object {
         private const val KEY_SERVICE_ENABLED = "service_enabled"
         private const val KEY_AUTO_LAUNCH = "auto_launch_on_dock"
         private const val KEY_BLACKOUT_TABLET = "blackout_tablet_on_dock"
         private const val KEY_SHIZUKU_SCREEN_OFF = "shizuku_screen_off"
         private const val KEY_SHIZUKU_FORCE_RELAUNCH = "shizuku_force_relaunch"
+        private const val KEY_UI_SOUNDS = "ui_sounds_enabled"
+        private const val KEY_IDLE_DIMMER = "idle_dimmer_enabled"
+        private const val KEY_THERMAL_WARNING = "thermal_warning_enabled"
         private const val KEY_PINS_INITIALIZED = "pins_initialized"
         private const val KEY_PINNED_PACKAGES = "pinned_packages"
     }

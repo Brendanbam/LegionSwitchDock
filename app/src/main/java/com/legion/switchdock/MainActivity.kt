@@ -63,6 +63,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.legion.switchdock.data.AppEntry
+import com.legion.switchdock.data.AppRepository
+import com.legion.switchdock.data.DockHealthMonitor
+import com.legion.switchdock.data.DockHealthSnapshot
 import com.legion.switchdock.data.DockPreferences
 import com.legion.switchdock.display.ExternalDisplayHelper
 import com.legion.switchdock.display.ExternalDisplayInfo
@@ -71,6 +75,7 @@ import com.legion.switchdock.shizuku.ShizukuHelper
 import com.legion.switchdock.shizuku.ShizukuStatus
 import kotlinx.coroutines.delay
 import rikka.shizuku.Shizuku
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
 
@@ -161,14 +166,36 @@ private fun CompanionRoot(
     var serviceEnabled by remember { mutableStateOf(prefs.isServiceEnabled) }
     var autoLaunch by remember { mutableStateOf(prefs.autoLaunchOnDock) }
     var blackoutTablet by remember { mutableStateOf(prefs.blackoutTabletOnDock) }
+    var uiSounds by remember { mutableStateOf(prefs.uiSoundsEnabled) }
+    var idleDimmer by remember { mutableStateOf(prefs.idleDimmerEnabled) }
+    var thermalWarning by remember { mutableStateOf(prefs.thermalWarningEnabled) }
     var shizukuScreenOff by remember { mutableStateOf(prefs.shizukuScreenOff) }
     var shizukuForceRelaunch by remember { mutableStateOf(prefs.shizukuForceRelaunch) }
+
+    var health by remember { mutableStateOf(DockHealthMonitor.readSnapshot(context)) }
+    var pinnedApps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
+    var bannerTargetPackage by remember { mutableStateOf<String?>(null) }
+
+    val bannerPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        val pkg = bannerTargetPackage
+        if (uri != null && pkg != null) {
+            AppRepository.saveCustomBanner(context, pkg, uri)
+            val loaded = AppRepository.loadLaunchableApps(context)
+            pinnedApps = AppRepository.getOrSeedPinnedApps(context, loaded, prefs)
+        }
+        bannerTargetPackage = null
+    }
 
     val notifLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { }
 
     LaunchedEffect(Unit) {
+        val loaded = AppRepository.loadLaunchableApps(context)
+        pinnedApps = AppRepository.getOrSeedPinnedApps(context, loaded, prefs)
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val granted = ContextCompat.checkSelfPermission(
                 context,
@@ -183,6 +210,7 @@ private fun CompanionRoot(
             hasOverlayPerm = Settings.canDrawOverlays(context)
             hasAccessibilityPerm = isAccessibilityEnabled(context)
             shizukuStatus = ShizukuHelper.getStatus()
+            health = DockHealthMonitor.readSnapshot(context)
             delay(1500)
         }
     }
@@ -216,12 +244,17 @@ private fun CompanionRoot(
     } else {
         SetupDashboardScreen(
             externalDisplay = externalDisplay,
+            health = health,
+            pinnedApps = pinnedApps,
             hasOverlayPerm = hasOverlayPerm,
             hasAccessibilityPerm = hasAccessibilityPerm,
             shizukuStatus = shizukuStatus,
             serviceEnabled = serviceEnabled,
             autoLaunch = autoLaunch,
             blackoutTablet = blackoutTablet,
+            uiSounds = uiSounds,
+            idleDimmer = idleDimmer,
+            thermalWarning = thermalWarning,
             shizukuScreenOff = shizukuScreenOff,
             shizukuForceRelaunch = shizukuForceRelaunch,
             onToggleService = { enabled ->
@@ -236,6 +269,30 @@ private fun CompanionRoot(
             onToggleBlackout = {
                 blackoutTablet = it
                 prefs.blackoutTabletOnDock = it
+            },
+            onToggleUiSounds = {
+                uiSounds = it
+                prefs.uiSoundsEnabled = it
+            },
+            onToggleIdleDimmer = {
+                idleDimmer = it
+                prefs.idleDimmerEnabled = it
+            },
+            onToggleThermalWarning = {
+                thermalWarning = it
+                prefs.thermalWarningEnabled = it
+            },
+            onOpenBypassCharging = {
+                DockHealthMonitor.openBypassChargingSettings(context)
+            },
+            onPickBanner = { pkg ->
+                bannerTargetPackage = pkg
+                bannerPicker.launch("image/*")
+            },
+            onClearBanner = { pkg ->
+                AppRepository.clearCustomBanner(context, pkg)
+                val loaded = AppRepository.loadLaunchableApps(context)
+                pinnedApps = AppRepository.getOrSeedPinnedApps(context, loaded, prefs)
             },
             onToggleShizukuScreenOff = {
                 shizukuScreenOff = it
@@ -370,17 +427,28 @@ private fun DockedBlackoutRemoteScreen(
 @Composable
 private fun SetupDashboardScreen(
     externalDisplay: ExternalDisplayInfo?,
+    health: DockHealthSnapshot,
+    pinnedApps: List<AppEntry>,
     hasOverlayPerm: Boolean,
     hasAccessibilityPerm: Boolean,
     shizukuStatus: ShizukuStatus,
     serviceEnabled: Boolean,
     autoLaunch: Boolean,
     blackoutTablet: Boolean,
+    uiSounds: Boolean,
+    idleDimmer: Boolean,
+    thermalWarning: Boolean,
     shizukuScreenOff: Boolean,
     shizukuForceRelaunch: Boolean,
     onToggleService: (Boolean) -> Unit,
     onToggleAutoLaunch: (Boolean) -> Unit,
     onToggleBlackout: (Boolean) -> Unit,
+    onToggleUiSounds: (Boolean) -> Unit,
+    onToggleIdleDimmer: (Boolean) -> Unit,
+    onToggleThermalWarning: (Boolean) -> Unit,
+    onOpenBypassCharging: () -> Unit,
+    onPickBanner: (String) -> Unit,
+    onClearBanner: (String) -> Unit,
     onToggleShizukuScreenOff: (Boolean) -> Unit,
     onToggleShizukuForceRelaunch: (Boolean) -> Unit,
     onRequestOverlay: () -> Unit,
@@ -506,6 +574,76 @@ private fun SetupDashboardScreen(
                 checked = blackoutTablet,
                 onCheckedChange = onToggleBlackout
             )
+            ToggleRow(
+                title = "Switch-Style UI Navigation Sounds",
+                subtitle = "Crisp audio feedback when browsing tiles and menus",
+                checked = uiSounds,
+                onCheckedChange = onToggleUiSounds
+            )
+            ToggleRow(
+                title = "5-Minute Idle TV Screensaver",
+                subtitle = "Dims the TV Hub to a clean clock after 5 min without controller input",
+                checked = idleDimmer,
+                onCheckedChange = onToggleIdleDimmer
+            )
+        }
+
+        // Y700 Battery & Thermal Protection
+        SectionCard(title = "Y700 Battery & Thermal Protection") {
+            val chargeText = if (health.isCharging) "Charging (${health.wattsEstimate}W)" else "Discharging"
+            Text(
+                text = "Battery: ${health.batteryPercent}% • ${String.format(Locale.US, "%.1f", health.temperatureC)}°C • $chargeText",
+                color = if (health.isThermalWarning) Color(0xFFF59E0B) else Color(0xFFD1D5DB),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            )
+            ToggleRow(
+                title = "TV Thermal Warning (>= 41°C)",
+                subtitle = "Shows a bypass-charging reminder on the TV status bar if battery warms up",
+                checked = thermalWarning,
+                onCheckedChange = onToggleThermalWarning
+            )
+            OutlinedButton(
+                onClick = onOpenBypassCharging,
+                border = BorderStroke(1.dp, Color(0xFF00E5FF))
+            ) {
+                Text("Open Game Assistant / Bypass Charging", color = Color(0xFF00E5FF))
+            }
+            Text(
+                text = "Tip: Hold Guide (or press L1+R1+Start) while docked to open the Quick Menu over any game.",
+                color = Color(0xFF9BA3B4),
+                fontSize = 12.sp
+            )
+        }
+
+        // Custom 16:9 Tile Art
+        if (pinnedApps.isNotEmpty()) {
+            SectionCard(title = "Custom 16:9 Tile Art (Pinned Apps)") {
+                pinnedApps.forEach { app ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = app.label,
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { onPickBanner(app.packageName) }) {
+                                Text(if (app.banner != null) "Change Art" else "Set 16:9 Art", fontSize = 12.sp)
+                            }
+                            if (app.banner != null) {
+                                OutlinedButton(onClick = { onClearBanner(app.packageName) }) {
+                                    Text("Reset", color = Color(0xFFF87171), fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Optional Shizuku Power Tweaks
