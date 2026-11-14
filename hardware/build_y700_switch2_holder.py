@@ -60,9 +60,7 @@ def main():
     # Replace the buggy tilted/chamfered backplate (Z = 0..3.25 mm) with a clean vertical
     # extrusion of the Z=0.05 cross-section so there are ZERO internal cavities or overhangs
     backplate_solid = m3d.Manifold.extrude(y700_trimmed.slice(0.05), 3.55)
-    # Clean out any stray diagonal sliver inside the camera cutout
-    backplate_solid = backplate_solid - make_box(28.0, 59.0, 52.5, 98.5, -1.0, 4.0)
-    upper_walls = y700_trimmed ^ make_box(-100.0, 100.0, -106.5, 106.5, 3.50, 25.0)
+    upper_walls = (y700_trimmed ^ make_box(-100.0, 100.0, -106.5, 106.5, 3.50, 25.0)) - make_box(-59.5, 59.5, -99.5, 99.5, 3.55, 25.0)
     y700_clean = backplate_solid + upper_walls
 
     # Widen the Power + Volume button cutout on the +X wall (Y in [30, 88], Z in [3.2, 16.0])
