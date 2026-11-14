@@ -155,6 +155,7 @@ private fun CompanionRoot(
 
     var externalDisplay by remember { mutableStateOf<ExternalDisplayInfo?>(null) }
     var hasOverlayPerm by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
+    var hasAccessibilityPerm by remember { mutableStateOf(isAccessibilityEnabled(context)) }
     var shizukuStatus by remember { mutableStateOf(ShizukuHelper.getStatus()) }
 
     var serviceEnabled by remember { mutableStateOf(prefs.isServiceEnabled) }
@@ -180,6 +181,7 @@ private fun CompanionRoot(
         while (true) {
             externalDisplay = ExternalDisplayHelper.findExternalDisplay(context)
             hasOverlayPerm = Settings.canDrawOverlays(context)
+            hasAccessibilityPerm = isAccessibilityEnabled(context)
             shizukuStatus = ShizukuHelper.getStatus()
             delay(1500)
         }
@@ -215,6 +217,7 @@ private fun CompanionRoot(
         SetupDashboardScreen(
             externalDisplay = externalDisplay,
             hasOverlayPerm = hasOverlayPerm,
+            hasAccessibilityPerm = hasAccessibilityPerm,
             shizukuStatus = shizukuStatus,
             serviceEnabled = serviceEnabled,
             autoLaunch = autoLaunch,
@@ -248,6 +251,9 @@ private fun CompanionRoot(
                     Uri.parse("package:${context.packageName}")
                 )
                 context.startActivity(intent)
+            },
+            onRequestAccessibility = {
+                context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             },
             onRequestShizuku = {
                 ShizukuHelper.requestPermission()
@@ -365,6 +371,7 @@ private fun DockedBlackoutRemoteScreen(
 private fun SetupDashboardScreen(
     externalDisplay: ExternalDisplayInfo?,
     hasOverlayPerm: Boolean,
+    hasAccessibilityPerm: Boolean,
     shizukuStatus: ShizukuStatus,
     serviceEnabled: Boolean,
     autoLaunch: Boolean,
@@ -377,6 +384,7 @@ private fun SetupDashboardScreen(
     onToggleShizukuScreenOff: (Boolean) -> Unit,
     onToggleShizukuForceRelaunch: (Boolean) -> Unit,
     onRequestOverlay: () -> Unit,
+    onRequestAccessibility: () -> Unit,
     onRequestShizuku: () -> Unit,
     onLaunchTvHub: (Int) -> Unit
 ) {
@@ -460,6 +468,24 @@ private fun SetupDashboardScreen(
             } else {
                 Text(
                     text = "✓ Display Over Other Apps permission granted",
+                    color = Color(0xFF4ADE80),
+                    fontSize = 13.sp
+                )
+            }
+            if (!hasAccessibilityPerm) {
+                Spacer(Modifier.height(6.dp))
+                OutlinedButton(
+                    onClick = onRequestAccessibility,
+                    border = BorderStroke(1.dp, Color(0xFF00E5FF))
+                ) {
+                    Text(
+                        "Enable Auto-Return to TV Hub (App Exit / Guide Button)",
+                        color = Color(0xFF00E5FF)
+                    )
+                }
+            } else {
+                Text(
+                    text = "✓ Auto-Return to TV Hub enabled (Guide/Home & app exit)",
                     color = Color(0xFF4ADE80),
                     fontSize = 13.sp
                 )
@@ -573,4 +599,13 @@ private fun ToggleRow(
             )
         )
     }
+}
+
+private fun isAccessibilityEnabled(context: Context): Boolean {
+    val expected = "${context.packageName}/${com.legion.switchdock.service.DockReturnAccessibilityService::class.java.name}"
+    val enabled = Settings.Secure.getString(
+        context.contentResolver,
+        Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+    ) ?: return false
+    return enabled.split(":").any { it.equals(expected, ignoreCase = true) }
 }

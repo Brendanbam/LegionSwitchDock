@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Legion Switch Dock</string>
+    <string name="accessibility_service_desc">Returns to Legion Switch TV Hub when closing an app or pressing the controller Guide/Home button while docked.</string>
 </resources>
