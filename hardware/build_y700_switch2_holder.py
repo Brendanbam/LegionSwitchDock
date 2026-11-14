@@ -89,8 +89,10 @@ def main():
     rail_l_tm.vertices = np.column_stack([-(vl[:, 2] - z_mid_l), vl[:, 0] + 16.5 - 105.0, -vl[:, 1]])
     rail_l_final = to_manifold(rail_l_tm)
 
-    # 3. Boolean union all three parts
-    combined = y700_trimmed + rail_r_final + rail_l_final
+    # 3. Boolean union all three parts, then plane-cut Z >= -6.95 and shift to Z = 0.0
+    # so the entire backplate and both rails sit 100% flush on the build plate
+    combined = (y700_trimmed + rail_r_final + rail_l_final) ^ make_box(-100.0, 100.0, -130.0, 130.0, -6.95, 25.0)
+    combined = combined.translate([0.0, 0.0, 6.95])
     out_tm = from_manifold(combined)
 
     # Export as indexed 3MF (zero STL float32 vertex-pinch) and binary STL
