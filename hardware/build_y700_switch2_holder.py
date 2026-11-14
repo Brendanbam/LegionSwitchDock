@@ -58,9 +58,9 @@ def main():
     trim_box = make_box(-100.0, 100.0, -106.5, 106.5, -25.0, 25.0)
     y700_trimmed = y700_mf ^ trim_box
 
-    # Widen the Power + Volume button cutout on the +X wall (Y in [30, 88], Z in [-2.0, 10.0])
+    # Widen the Power + Volume button cutout on the +X wall (Y in [30, 88], Z in [-1.5, 10.0])
     # so buttons are easy to press with a fingertip
-    button_cutout = make_box(63.0, 72.0, 30.0, 88.0, -2.0, 10.0)
+    button_cutout = make_box(63.0, 72.0, 30.0, 88.0, -1.5, 10.0)
     y700_trimmed = y700_trimmed - button_cutout
 
     # 2. Load Joy-Con 2 grip body
@@ -90,10 +90,12 @@ def main():
     combined = y700_trimmed + rail_r_final + rail_l_final
     out_tm = from_manifold(combined)
 
-    # Export as binary STL (and check watertightness)
+    # Export as indexed 3MF (zero STL float32 vertex-pinch) and binary STL
+    out_3mf = os.path.join(OUT_DIR, "Y700_2025_Switch2_JoyCon_Holder.3mf")
+    out_tm.export(out_3mf)
     out_stl = os.path.join(OUT_DIR, "Y700_2025_Switch2_JoyCon_Holder.stl")
     out_tm.export(out_stl)
-    print(f"Exported {out_stl}: watertight={out_tm.is_watertight}, is_volume={out_tm.is_volume}, faces={len(out_tm.faces)}")
+    print(f"Exported {out_3mf} & {out_stl}: watertight={out_tm.is_watertight}, is_volume={out_tm.is_volume}, faces={len(out_tm.faces)}")
 
     # 4. Export two snap-locking bars lying flat for printing
     bar_tm = load_3mf_object(JC2_3MF, "3D/Objects/object_7.model")
