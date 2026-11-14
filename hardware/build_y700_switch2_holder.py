@@ -59,8 +59,8 @@ def main():
 
     # Replace the buggy tilted/chamfered backplate (Z = 0..3.25 mm) with a clean vertical
     # extrusion of the Z=0.05 cross-section so there are ZERO internal cavities or overhangs
-    backplate_solid = m3d.Manifold.extrude(y700_trimmed.slice(0.05), 3.55)
-    upper_walls = (y700_trimmed ^ make_box(-100.0, 100.0, -106.5, 106.5, 3.50, 25.0)) - make_box(-59.5, 59.5, -99.5, 99.5, 3.55, 25.0)
+    backplate_solid = m3d.Manifold.extrude(y700_trimmed.slice(0.05), 3.60)
+    upper_walls = (y700_trimmed ^ make_box(-100.0, 100.0, -106.5, 106.5, 3.55, 25.0)) - make_box(-60.5, 60.5, -100.5, 100.5, 3.40, 25.0)
     y700_clean = backplate_solid + upper_walls
 
     # Widen the Power + Volume button cutout on the +X wall (Y in [30, 88], Z in [3.2, 16.0])
