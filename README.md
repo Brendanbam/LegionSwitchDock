@@ -19,6 +19,12 @@ A Switch-style 10-foot TV Hub & automatic dock companion built in **Kotlin + Jet
 ### Option 2: Android Studio
 Open `LegionSwitchDock` in Android Studio and click **Build → Build APK(s)**.
 
+### Option 3: Obtainium (auto-updates on the tablet)
+Every push to `main` publishes a GitHub Release with the APK attached and a higher version number.
+1. Install [Obtainium](https://github.com/ImranR98/Obtainium) on the Y700.
+2. Tap **Add App** and paste `https://github.com/Brendanbam/LegionSwitchDock`.
+3. Install from Obtainium — it will notify you and update the app whenever a new release is published.
+
 ## First-Time Tablet Setup
 1. Install `app-debug.apk` on your Legion Y700.
 2. Open **Legion Switch Dock** and grant **Display Over Other Apps** (required on Android 14/15 so the TV Hub can auto-launch when you plug in the cable).

@@ -12,8 +12,10 @@ android {
         applicationId = "com.legion.switchdock"
         minSdk = 33
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        // CI passes -PappVersionCode=<run number> so every build is a newer version (needed for Obtainium updates)
+        val ciVersionCode = (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 1
+        versionCode = ciVersionCode
+        versionName = "1.0.$ciVersionCode"
     }
 
     base {

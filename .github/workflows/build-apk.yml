@@ -7,9 +7,15 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    env:
+      APP_VERSION_CODE: ${{ github.run_number }}
 
     steps:
       - name: Checkout repository
@@ -27,10 +33,24 @@ jobs:
           gradle-version: '8.9'
 
       - name: Build Debug APK
-        run: gradle assembleDebug --stacktrace
+        run: gradle assembleDebug --stacktrace -PappVersionCode=${APP_VERSION_CODE}
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: LegionSwitchDock-debug
           path: app/build/outputs/apk/debug/LegionSwitchDock-debug.apk
+
+      # Publish a GitHub Release so Obtainium can detect and install updates
+      - name: Publish GitHub Release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v1.0.${APP_VERSION_CODE}"
+          cp app/build/outputs/apk/debug/LegionSwitchDock-debug.apk "LegionSwitchDock-${TAG}.apk"
+          gh release create "$TAG" "LegionSwitchDock-${TAG}.apk" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Legion Switch Dock ${TAG}" \
+            --notes "Automatic build from commit ${GITHUB_SHA::7}: $(git log -1 --pretty=%s)"
