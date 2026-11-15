@@ -39,6 +39,14 @@ class DockPreferences(context: Context) {
         get() = prefs.getBoolean(KEY_THERMAL_WARNING, true)
         set(value) = prefs.edit().putBoolean(KEY_THERMAL_WARNING, value).apply()
 
+    var autoBypassChargingOnDock: Boolean
+        get() = prefs.getBoolean(KEY_AUTO_BYPASS_CHARGING, true)
+        set(value) = prefs.edit().putBoolean(KEY_AUTO_BYPASS_CHARGING, value).apply()
+
+    var bypassChargingEnabled: Boolean
+        get() = prefs.getBoolean(KEY_BYPASS_CHARGING_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_BYPASS_CHARGING_ENABLED, value).apply()
+
     var preferredDisplayModeId: Int
         get() = prefs.getInt(KEY_PREFERRED_DISPLAY_MODE_ID, 0)
         set(value) = prefs.edit().putInt(KEY_PREFERRED_DISPLAY_MODE_ID, value).apply()
@@ -91,6 +99,8 @@ class DockPreferences(context: Context) {
         private const val KEY_UI_SOUNDS = "ui_sounds_enabled"
         private const val KEY_IDLE_DIMMER = "idle_dimmer_enabled"
         private const val KEY_THERMAL_WARNING = "thermal_warning_enabled"
+        private const val KEY_AUTO_BYPASS_CHARGING = "auto_bypass_charging_on_dock"
+        private const val KEY_BYPASS_CHARGING_ENABLED = "bypass_charging_enabled"
         private const val KEY_PREFERRED_DISPLAY_MODE_ID = "preferred_display_mode_id"
         private const val KEY_PINS_INITIALIZED = "pins_initialized"
         private const val KEY_PINNED_PACKAGES = "pinned_packages"

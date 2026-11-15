@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.hardware.display.DisplayManager
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Display
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
@@ -17,6 +18,7 @@ import com.legion.switchdock.display.ExternalDisplayHelper
 class DockReturnAccessibilityService : AccessibilityService() {
 
     private var lastReturnMs = 0L
+    private var lastComboToggleMs = 0L
     private var lastForegroundPackage: String? = null
     private lateinit var quickMenuOverlay: QuickMenuOverlay
 
@@ -28,16 +30,28 @@ class DockReturnAccessibilityService : AccessibilityService() {
 
     private val guideLongPressRunnable = Runnable {
         guideLongPressHandled = true
-        val external = resolveExternalDisplay() ?: return@Runnable
-        quickMenuOverlay.toggle(external, lastForegroundPackage)
+        toggleQuickMenuBestEffort()
     }
 
     private val quickMenuReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == ACTION_TOGGLE_QUICK_MENU) {
-                val external = resolveExternalDisplay() ?: return
-                quickMenuOverlay.toggle(external, lastForegroundPackage)
+                toggleQuickMenuBestEffort()
             }
+        }
+    }
+
+    private fun toggleQuickMenuBestEffort() {
+        if (::quickMenuOverlay.isInitialized && quickMenuOverlay.isShowing) {
+            quickMenuOverlay.dismiss()
+            return
+        }
+        if (TvHubActivity.isInstanceResumed && TvHubActivity.toggleQuickMenuFromService()) {
+            return
+        }
+        val target = resolveTargetDisplay() ?: return
+        if (::quickMenuOverlay.isInitialized) {
+            quickMenuOverlay.toggle(target, lastForegroundPackage)
         }
     }
 
@@ -84,23 +98,35 @@ class DockReturnAccessibilityService : AccessibilityService() {
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
-        // Track L1 + R1 + Start combo anywhere (Extended Mode or Mirror Mode)
+        // Track L1 + R1 + Start / Select combo anywhere (Extended Mode or Mirror Mode)
         when (event.keyCode) {
             KeyEvent.KEYCODE_BUTTON_L1 -> l1Pressed = event.action == KeyEvent.ACTION_DOWN
             KeyEvent.KEYCODE_BUTTON_R1 -> r1Pressed = event.action == KeyEvent.ACTION_DOWN
-            KeyEvent.KEYCODE_BUTTON_START -> {
+            KeyEvent.KEYCODE_BUTTON_START,
+            KeyEvent.KEYCODE_BUTTON_SELECT -> {
                 if (event.action == KeyEvent.ACTION_DOWN && l1Pressed && r1Pressed) {
-                    val target = resolveTargetDisplay() ?: return super.onKeyEvent(event)
-                    quickMenuOverlay.toggle(target, lastForegroundPackage)
+                    val now = SystemClock.uptimeMillis()
+                    if (now - lastComboToggleMs >= 400L) {
+                        lastComboToggleMs = now
+                        toggleQuickMenuBestEffort()
+                    }
                     return true
                 }
             }
         }
 
-        // If the Quick Menu overlay is currently open, intercept D-pad/A/B directly
-        // so the controller always operates it regardless of multi-display window focus!
+        // 1. If the Quick Menu overlay is currently open over an external game/app,
+        // intercept D-pad/A/B/L1/R1 directly so the controller always operates it!
         if (::quickMenuOverlay.isInitialized && quickMenuOverlay.isShowing) {
             if (quickMenuOverlay.handleKeyEvent(event)) {
+                return true
+            }
+        }
+
+        // 2. If TvHubActivity is currently open, prioritize routing controller keys
+        // directly to TvHubActivity so Lenovo's built-in launcher can never steal them!
+        if (TvHubActivity.isInstanceResumed) {
+            if (TvHubActivity.dispatchGlobalKeyEvent(event)) {
                 return true
             }
         }

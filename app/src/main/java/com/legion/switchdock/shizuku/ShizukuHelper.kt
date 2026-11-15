@@ -121,4 +121,22 @@ object ShizukuHelper {
         val cmd = "cmd display set-user-preferred-display-mode $width $height ${refreshRateHz}.0 $displayId"
         return runCommand(context, cmd)
     }
+
+    /**
+     * Enables or disables Lenovo Legion Y700 (ZUI 15/16) Bypass Charging across all known
+     * Lenovo system/secure/global settings keys via Shizuku (shell UID 2000).
+     */
+    fun setBypassCharging(context: Context, enabled: Boolean): Boolean {
+        val flag = if (enabled) "1" else "0"
+        val cmd = listOf(
+            "settings put system bypass_charging_enable $flag",
+            "settings put secure bypass_charging_enable $flag",
+            "settings put global bypass_charging_enable $flag",
+            "settings put system game_bypass_charging $flag",
+            "settings put secure game_bypass_charging $flag",
+            "settings put system zui_bypass_charging $flag",
+            "settings put secure zui_bypass_charging $flag"
+        ).joinToString(" ; ")
+        return runCommand(context, cmd)
+    }
 }

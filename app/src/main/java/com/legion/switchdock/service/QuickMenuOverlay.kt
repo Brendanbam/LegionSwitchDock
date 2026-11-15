@@ -7,11 +7,14 @@ import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
 import android.media.AudioManager
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.TypedValue
 import android.view.Display
 import android.view.Gravity
+import android.view.InputDevice
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
@@ -25,6 +28,7 @@ import com.legion.switchdock.display.ExternalDisplayHelper
 import com.legion.switchdock.media.SwitchAudioFeedback
 import com.legion.switchdock.shizuku.ShizukuHelper
 import com.legion.switchdock.shizuku.ShizukuStatus
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 class QuickMenuOverlay(
@@ -38,47 +42,132 @@ class QuickMenuOverlay(
     private var menuButtons: List<TextView> = emptyList()
     private var focusedIndex: Int = 3
 
+    private var shownAtMs: Long = 0L
+    private var lastStickStepMs: Long = 0L
+    private var stickNeutral: Boolean = true
+    private var lastHandledDownTime: Long = -1L
+    private var lastHandledEventTime: Long = -1L
+    private var lastHandledKeyCode: Int = -1
+    private var lastHandledAction: Int = -1
+
     val isShowing: Boolean
         get() = rootView != null
 
     fun handleKeyEvent(event: KeyEvent): Boolean {
         if (!isShowing) return false
+        if (event.downTime == lastHandledDownTime &&
+            event.eventTime == lastHandledEventTime &&
+            event.keyCode == lastHandledKeyCode &&
+            event.action == lastHandledAction
+        ) {
+            return true
+        }
+        val relevantKeys = setOf(
+            KeyEvent.KEYCODE_DPAD_UP,
+            KeyEvent.KEYCODE_DPAD_DOWN,
+            KeyEvent.KEYCODE_DPAD_LEFT,
+            KeyEvent.KEYCODE_DPAD_RIGHT,
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_BUTTON_L1,
+            KeyEvent.KEYCODE_BUTTON_R1,
+            KeyEvent.KEYCODE_BUTTON_A,
+            KeyEvent.KEYCODE_ENTER,
+            KeyEvent.KEYCODE_NUMPAD_ENTER,
+            KeyEvent.KEYCODE_BUTTON_B,
+            KeyEvent.KEYCODE_BACK,
+            KeyEvent.KEYCODE_ESCAPE,
+            KeyEvent.KEYCODE_BUTTON_START,
+            KeyEvent.KEYCODE_BUTTON_SELECT
+        )
+        if (event.keyCode !in relevantKeys) return false
+
+        lastHandledDownTime = event.downTime
+        lastHandledEventTime = event.eventTime
+        lastHandledKeyCode = event.keyCode
+        lastHandledAction = event.action
+
         if (event.action != KeyEvent.ACTION_DOWN) {
-            return event.keyCode in setOf(
-                KeyEvent.KEYCODE_DPAD_UP,
-                KeyEvent.KEYCODE_DPAD_DOWN,
-                KeyEvent.KEYCODE_DPAD_LEFT,
-                KeyEvent.KEYCODE_DPAD_RIGHT,
-                KeyEvent.KEYCODE_DPAD_CENTER,
-                KeyEvent.KEYCODE_BUTTON_A,
-                KeyEvent.KEYCODE_ENTER,
-                KeyEvent.KEYCODE_BUTTON_B,
-                KeyEvent.KEYCODE_BACK,
-                KeyEvent.KEYCODE_ESCAPE
-            )
+            return true
         }
         val buttons = menuButtons
         if (buttons.isEmpty()) return false
         return when (event.keyCode) {
-            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_LEFT -> {
+            KeyEvent.KEYCODE_DPAD_UP,
+            KeyEvent.KEYCODE_DPAD_LEFT,
+            KeyEvent.KEYCODE_BUTTON_L1 -> {
                 setFocusedIndex((focusedIndex - 1 + buttons.size) % buttons.size)
                 true
             }
-            KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+            KeyEvent.KEYCODE_DPAD_DOWN,
+            KeyEvent.KEYCODE_DPAD_RIGHT,
+            KeyEvent.KEYCODE_BUTTON_R1 -> {
                 setFocusedIndex((focusedIndex + 1) % buttons.size)
                 true
             }
-            KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+            KeyEvent.KEYCODE_BUTTON_A,
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_ENTER,
+            KeyEvent.KEYCODE_NUMPAD_ENTER -> {
                 buttons.getOrNull(focusedIndex)?.performClick()
                 true
             }
-            KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
+            KeyEvent.KEYCODE_BUTTON_B,
+            KeyEvent.KEYCODE_BACK,
+            KeyEvent.KEYCODE_ESCAPE -> {
                 SwitchAudioFeedback.playBack(serviceContext)
                 dismiss()
                 true
             }
+            KeyEvent.KEYCODE_BUTTON_START,
+            KeyEvent.KEYCODE_BUTTON_SELECT -> {
+                if (SystemClock.uptimeMillis() - shownAtMs >= 400L) {
+                    SwitchAudioFeedback.playBack(serviceContext)
+                    dismiss()
+                }
+                true
+            }
             else -> false
         }
+    }
+
+    fun handleMotionEvent(event: MotionEvent): Boolean {
+        if (!isShowing) return false
+        val isJoystick = (event.source and InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK ||
+            (event.source and InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD ||
+            (event.source and InputDevice.SOURCE_DPAD) == InputDevice.SOURCE_DPAD
+        if (!isJoystick || event.action != MotionEvent.ACTION_MOVE) return false
+
+        val hatX = event.getAxisValue(MotionEvent.AXIS_HAT_X)
+        val hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
+        val stickX = event.getAxisValue(MotionEvent.AXIS_X)
+        val stickY = event.getAxisValue(MotionEvent.AXIS_Y)
+
+        val x = if (abs(hatX) > abs(stickX)) hatX else stickX
+        val y = if (abs(hatY) > abs(stickY)) hatY else stickY
+
+        val threshold = 0.55f
+        val now = SystemClock.uptimeMillis()
+        val buttons = menuButtons
+        if (buttons.isEmpty()) return false
+
+        if (abs(x) < 0.25f && abs(y) < 0.25f) {
+            stickNeutral = true
+        } else if (stickNeutral || now - lastStickStepMs >= 190L) {
+            val delta = when {
+                abs(x) >= abs(y) && x <= -threshold -> -1
+                abs(x) >= abs(y) && x >= threshold -> 1
+                abs(y) > abs(x) && y <= -threshold -> -1
+                abs(y) > abs(x) && y >= threshold -> 1
+                else -> 0
+            }
+            if (delta != 0) {
+                stickNeutral = false
+                lastStickStepMs = now
+                setFocusedIndex((focusedIndex + delta + buttons.size) % buttons.size)
+                return true
+            }
+        }
+        return false
     }
 
     private fun setFocusedIndex(index: Int) {
@@ -112,20 +201,21 @@ class QuickMenuOverlay(
 
         val backdrop = object : FrameLayout(displayContext) {
             override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-                if (event.action == KeyEvent.ACTION_DOWN) {
-                    when (event.keyCode) {
-                        KeyEvent.KEYCODE_BUTTON_B,
-                        KeyEvent.KEYCODE_BACK,
-                        KeyEvent.KEYCODE_ESCAPE -> {
-                            SwitchAudioFeedback.playBack(serviceContext)
-                            dismiss()
-                            return true
-                        }
-                    }
+                if (handleKeyEvent(event)) {
+                    return true
                 }
                 return super.dispatchKeyEvent(event)
             }
+
+            override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+                if (handleMotionEvent(event)) {
+                    return true
+                }
+                return super.dispatchGenericMotionEvent(event)
+            }
         }.apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
             setBackgroundColor(Color.argb(185, 8, 10, 14))
             setOnClickListener { dismiss() }
         }
@@ -253,10 +343,24 @@ class QuickMenuOverlay(
         soundsButton = soundToggleBtn
         addMenuRow(displayContext, card, soundToggleBtn)
 
-        val bypassBtn = createMenuButton(displayContext, "Bypass Charging / Game Assistant") {
-            dismiss()
-            DockHealthMonitor.openBypassChargingSettings(serviceContext)
+        var bypassButtonRef: TextView? = null
+        val bypassLabel = if (shizukuReady) {
+            "Bypass Charging: ${if (prefs.bypassChargingEnabled) "ON" else "OFF"} (Tap to Toggle)"
+        } else {
+            "Bypass Charging / Game Assistant"
         }
+        val bypassBtn = createMenuButton(displayContext, bypassLabel) {
+            if (ShizukuHelper.getStatus() == ShizukuStatus.READY) {
+                val next = !prefs.bypassChargingEnabled
+                prefs.bypassChargingEnabled = next
+                ShizukuHelper.setBypassCharging(serviceContext, next)
+                bypassButtonRef?.text = "Bypass Charging: ${if (next) "ON" else "OFF"} (Tap to Toggle)"
+            } else {
+                dismiss()
+                DockHealthMonitor.openBypassChargingSettings(serviceContext)
+            }
+        }
+        bypassButtonRef = bypassBtn
         addMenuRow(displayContext, card, bypassBtn)
 
         val closeBtn = createMenuButton(displayContext, "Close Menu (B)") {
@@ -296,7 +400,12 @@ class QuickMenuOverlay(
             wm.addView(backdrop, params)
             rootView = backdrop
             attachedWindowManager = wm
-            backdrop.post { setFocusedIndex(3) }
+            activeInstance = this
+            shownAtMs = SystemClock.uptimeMillis()
+            backdrop.post {
+                backdrop.requestFocus()
+                setFocusedIndex(3)
+            }
             SwitchAudioFeedback.playMenu(serviceContext)
         }
     }
@@ -306,6 +415,9 @@ class QuickMenuOverlay(
         val wm = attachedWindowManager
         rootView = null
         attachedWindowManager = null
+        if (activeInstance === this) {
+            activeInstance = null
+        }
         volumeLabel = null
         soundsButton = null
         menuButtons = emptyList()
@@ -391,5 +503,10 @@ class QuickMenuOverlay(
             value.toFloat(),
             ctx.resources.displayMetrics
         ).roundToInt()
+    }
+
+    companion object {
+        @Volatile
+        var activeInstance: QuickMenuOverlay? = null
     }
 }

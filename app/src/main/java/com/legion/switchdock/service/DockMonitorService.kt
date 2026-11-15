@@ -110,6 +110,11 @@ class DockMonitorService : Service() {
         if (prefs.shizukuScreenOff) {
             ShizukuHelper.setInternalScreenBrightness(this, dimToZero = true)
         }
+        if (prefs.autoBypassChargingOnDock) {
+            if (ShizukuHelper.setBypassCharging(this, enabled = true)) {
+                prefs.bypassChargingEnabled = true
+            }
+        }
     }
 
     private fun handleUndocked() {
@@ -118,6 +123,10 @@ class DockMonitorService : Service() {
 
         if (prefs.shizukuScreenOff) {
             ShizukuHelper.setInternalScreenBrightness(this, dimToZero = false)
+        }
+        if (prefs.autoBypassChargingOnDock) {
+            ShizukuHelper.setBypassCharging(this, enabled = false)
+            prefs.bypassChargingEnabled = false
         }
 
         sendBroadcast(Intent(ACTION_UNDOCKED).setPackage(packageName))

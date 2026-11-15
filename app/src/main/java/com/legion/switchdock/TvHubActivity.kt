@@ -8,9 +8,12 @@ import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.Display
+import android.view.InputDevice
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -24,7 +27,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,9 +42,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -72,14 +75,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -97,21 +94,42 @@ import com.legion.switchdock.data.DockPreferences
 import com.legion.switchdock.display.ExternalDisplayHelper
 import com.legion.switchdock.media.SwitchAudioFeedback
 import com.legion.switchdock.service.DockMonitorService
+import com.legion.switchdock.service.DockReturnAccessibilityService
 import com.legion.switchdock.shizuku.ShizukuHelper
+import com.legion.switchdock.shizuku.ShizukuStatus
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.roundToInt
+
+enum class ControllerCommand {
+    LEFT, RIGHT, UP, DOWN,
+    A_CONFIRM, B_BACK, X_ACTION, Y_DRAWER,
+    L1_PREV, R1_NEXT, START_MENU
+}
 
 class TvHubActivity : ComponentActivity() {
 
     private var targetDisplayId: Int = Display.DEFAULT_DISPLAY
+    private val controllerCommands = MutableSharedFlow<ControllerCommand>(extraBufferCapacity = 16)
+    private var lastStickStepMs: Long = 0L
+    private var stickNeutral: Boolean = true
+    private var lastMenuToggleMs: Long = 0L
+    private var lastHandledDownTime: Long = -1L
+    private var lastHandledEventTime: Long = -1L
+    private var lastHandledKeyCode: Int = -1
+    private var lastHandledAction: Int = -1
 
     private val undockReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action == DockMonitorService.ACTION_UNDOCKED) {
-                finish()
+            when (intent.action) {
+                DockMonitorService.ACTION_UNDOCKED -> finish()
+                DockReturnAccessibilityService.ACTION_TOGGLE_QUICK_MENU -> {
+                    controllerCommands.tryEmit(ControllerCommand.START_MENU)
+                }
             }
         }
     }
@@ -127,16 +145,17 @@ class TvHubActivity : ComponentActivity() {
         )
         applyPreferredDisplayMode()
 
-        registerReceiver(
-            undockReceiver,
-            IntentFilter(DockMonitorService.ACTION_UNDOCKED),
-            RECEIVER_NOT_EXPORTED
-        )
+        val filter = IntentFilter().apply {
+            addAction(DockMonitorService.ACTION_UNDOCKED)
+            addAction(DockReturnAccessibilityService.ACTION_TOGGLE_QUICK_MENU)
+        }
+        registerReceiver(undockReceiver, filter, RECEIVER_NOT_EXPORTED)
 
         setContent {
             MaterialTheme {
                 SwitchTvHubScreen(
                     targetDisplayId = targetDisplayId,
+                    commands = controllerCommands,
                     onLaunchApp = { app -> launchAppOnTv(app) },
                     onExitHub = { finish() }
                 )
@@ -144,8 +163,22 @@ class TvHubActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        activeInstance = this
+        isInstanceResumed = true
+        hideSystemBars()
+        window.decorView.requestFocus()
+    }
+
+    override fun onPause() {
+        isInstanceResumed = false
+        super.onPause()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        activeInstance = this
         targetDisplayId = intent.getIntExtra(
             EXTRA_DISPLAY_ID,
             display?.displayId ?: Display.DEFAULT_DISPLAY
@@ -163,13 +196,132 @@ class TvHubActivity : ComponentActivity() {
         }
     }
 
+    fun handleControllerKeyEvent(event: KeyEvent): Boolean {
+        if (event.downTime == lastHandledDownTime &&
+            event.eventTime == lastHandledEventTime &&
+            event.keyCode == lastHandledKeyCode &&
+            event.action == lastHandledAction
+        ) {
+            return true
+        }
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            val cmd = when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_LEFT -> ControllerCommand.LEFT
+                KeyEvent.KEYCODE_DPAD_RIGHT -> ControllerCommand.RIGHT
+                KeyEvent.KEYCODE_DPAD_UP -> ControllerCommand.UP
+                KeyEvent.KEYCODE_DPAD_DOWN -> ControllerCommand.DOWN
+                KeyEvent.KEYCODE_BUTTON_A,
+                KeyEvent.KEYCODE_DPAD_CENTER,
+                KeyEvent.KEYCODE_ENTER,
+                KeyEvent.KEYCODE_NUMPAD_ENTER -> ControllerCommand.A_CONFIRM
+                KeyEvent.KEYCODE_BUTTON_B,
+                KeyEvent.KEYCODE_BACK,
+                KeyEvent.KEYCODE_ESCAPE -> ControllerCommand.B_BACK
+                KeyEvent.KEYCODE_BUTTON_X -> ControllerCommand.X_ACTION
+                KeyEvent.KEYCODE_BUTTON_Y -> ControllerCommand.Y_DRAWER
+                KeyEvent.KEYCODE_BUTTON_L1 -> ControllerCommand.L1_PREV
+                KeyEvent.KEYCODE_BUTTON_R1 -> ControllerCommand.R1_NEXT
+                KeyEvent.KEYCODE_BUTTON_START,
+                KeyEvent.KEYCODE_BUTTON_SELECT,
+                KeyEvent.KEYCODE_MENU -> ControllerCommand.START_MENU
+                else -> null
+            }
+            if (cmd != null) {
+                lastHandledDownTime = event.downTime
+                lastHandledEventTime = event.eventTime
+                lastHandledKeyCode = event.keyCode
+                lastHandledAction = event.action
+                if (cmd == ControllerCommand.START_MENU) {
+                    val now = SystemClock.uptimeMillis()
+                    if (now - lastMenuToggleMs < 350L) return true
+                    lastMenuToggleMs = now
+                }
+                controllerCommands.tryEmit(cmd)
+                return true
+            }
+        } else if (event.action == KeyEvent.ACTION_UP) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_LEFT,
+                KeyEvent.KEYCODE_DPAD_RIGHT,
+                KeyEvent.KEYCODE_DPAD_UP,
+                KeyEvent.KEYCODE_DPAD_DOWN,
+                KeyEvent.KEYCODE_BUTTON_A,
+                KeyEvent.KEYCODE_DPAD_CENTER,
+                KeyEvent.KEYCODE_ENTER,
+                KeyEvent.KEYCODE_NUMPAD_ENTER,
+                KeyEvent.KEYCODE_BUTTON_B,
+                KeyEvent.KEYCODE_BACK,
+                KeyEvent.KEYCODE_ESCAPE,
+                KeyEvent.KEYCODE_BUTTON_X,
+                KeyEvent.KEYCODE_BUTTON_Y,
+                KeyEvent.KEYCODE_BUTTON_L1,
+                KeyEvent.KEYCODE_BUTTON_R1,
+                KeyEvent.KEYCODE_BUTTON_START,
+                KeyEvent.KEYCODE_BUTTON_SELECT,
+                KeyEvent.KEYCODE_MENU -> {
+                    lastHandledDownTime = event.downTime
+                    lastHandledEventTime = event.eventTime
+                    lastHandledKeyCode = event.keyCode
+                    lastHandledAction = event.action
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (handleControllerKeyEvent(event)) return true
+        return super.dispatchKeyEvent(event)
+    }
+
+    fun handleControllerMotionEvent(event: MotionEvent): Boolean {
+        val isJoystick = (event.source and InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK ||
+            (event.source and InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD ||
+            (event.source and InputDevice.SOURCE_DPAD) == InputDevice.SOURCE_DPAD
+        if (isJoystick && event.action == MotionEvent.ACTION_MOVE) {
+            val hatX = event.getAxisValue(MotionEvent.AXIS_HAT_X)
+            val hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
+            val stickX = event.getAxisValue(MotionEvent.AXIS_X)
+            val stickY = event.getAxisValue(MotionEvent.AXIS_Y)
+
+            val x = if (abs(hatX) > abs(stickX)) hatX else stickX
+            val y = if (abs(hatY) > abs(stickY)) hatY else stickY
+
+            val threshold = 0.55f
+            val now = SystemClock.uptimeMillis()
+            if (abs(x) < 0.25f && abs(y) < 0.25f) {
+                stickNeutral = true
+            } else if (stickNeutral || now - lastStickStepMs >= 190L) {
+                val cmd = when {
+                    abs(x) >= abs(y) && x <= -threshold -> ControllerCommand.LEFT
+                    abs(x) >= abs(y) && x >= threshold -> ControllerCommand.RIGHT
+                    abs(y) > abs(x) && y <= -threshold -> ControllerCommand.UP
+                    abs(y) > abs(x) && y >= threshold -> ControllerCommand.DOWN
+                    else -> null
+                }
+                if (cmd != null) {
+                    stickNeutral = false
+                    lastStickStepMs = now
+                    controllerCommands.tryEmit(cmd)
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        if (handleControllerMotionEvent(event)) return true
+        return super.dispatchGenericMotionEvent(event)
+    }
+
     private fun applyPreferredDisplayMode() {
         val prefs = DockPreferences(this)
         val ext = ExternalDisplayHelper.findExternalDisplay(this)
         val desiredModeId = if (prefs.preferredDisplayModeId != 0) {
             prefs.preferredDisplayModeId
         } else {
-            // Auto-prefer highest >= 60Hz mode (e.g. 4K@60Hz or 1080p@60Hz+)
             ext?.supportedModes?.firstOrNull()?.modeId ?: 0
         }
         if (desiredModeId != 0) {
@@ -180,6 +332,10 @@ class TvHubActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        isInstanceResumed = false
+        if (activeInstance === this) {
+            activeInstance = null
+        }
         runCatching { unregisterReceiver(undockReceiver) }
         super.onDestroy()
     }
@@ -203,19 +359,51 @@ class TvHubActivity : ComponentActivity() {
         ExternalDisplayHelper.launchPackageOnDisplay(this, app.packageName, externalId)
     }
 
+    fun toggleMenu() {
+        val now = SystemClock.uptimeMillis()
+        if (now - lastMenuToggleMs < 350L) return
+        lastMenuToggleMs = now
+        controllerCommands.tryEmit(ControllerCommand.START_MENU)
+    }
+
     companion object {
         const val EXTRA_DISPLAY_ID = "extra_display_id"
+        @Volatile
+        var isInstanceResumed: Boolean = false
+        @Volatile
+        var activeInstance: TvHubActivity? = null
+
+        fun dispatchGlobalKeyEvent(event: KeyEvent): Boolean {
+            val instance = activeInstance ?: return false
+            if (!isInstanceResumed) return false
+            return instance.handleControllerKeyEvent(event)
+        }
+
+        fun dispatchGlobalMotionEvent(event: MotionEvent): Boolean {
+            val instance = activeInstance ?: return false
+            if (!isInstanceResumed) return false
+            return instance.handleControllerMotionEvent(event)
+        }
+
+        fun toggleQuickMenuFromService(): Boolean {
+            val instance = activeInstance ?: return false
+            if (!isInstanceResumed) return false
+            instance.toggleMenu()
+            return true
+        }
     }
 }
 
 @Composable
 private fun SwitchTvHubScreen(
     targetDisplayId: Int,
+    commands: MutableSharedFlow<ControllerCommand>,
     onLaunchApp: (AppEntry) -> Unit,
     onExitHub: () -> Unit
 ) {
     val context = LocalContext.current
     val prefs = remember { DockPreferences(context) }
+    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
 
     var allApps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
     var pinnedApps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
@@ -224,8 +412,14 @@ private fun SwitchTvHubScreen(
     var isIdleDimmed by remember { mutableStateOf(false) }
     var lastInteractionMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    var focusedTitle by remember { mutableStateOf("Legion Switch Hub") }
-    var focusedPackage by remember { mutableStateOf<String?>(null) }
+    // Deterministic controller selection states (never lost when display focus shifts!)
+    var selectedTileIndex by remember { mutableIntStateOf(0) }
+    var selectedDrawerIndex by remember { mutableIntStateOf(0) }
+    var selectedMenuIndex by remember { mutableIntStateOf(0) }
+    var menuStateTick by remember { mutableIntStateOf(0) }
+
+    val rowListState = rememberLazyListState()
+    val drawerGridState = rememberLazyGridState()
 
     var currentTime by remember { mutableStateOf("") }
     var currentDate by remember { mutableStateOf("") }
@@ -244,8 +438,6 @@ private fun SwitchTvHubScreen(
         )
     }
 
-    val firstCardFocus = remember { FocusRequester() }
-
     fun reloadApps() {
         val loaded = AppRepository.loadLaunchableApps(context)
         allApps = loaded
@@ -254,14 +446,195 @@ private fun SwitchTvHubScreen(
 
     LaunchedEffect(Unit) {
         reloadApps()
-        delay(120)
-        runCatching { firstCardFocus.requestFocus() }
     }
 
-    LaunchedEffect(showQuickMenu, showAllAppsDrawer) {
-        if (!showQuickMenu && !showAllAppsDrawer) {
-            delay(80)
-            runCatching { firstCardFocus.requestFocus() }
+    val totalRowTiles = pinnedApps.size + 2 // pinnedApps + "All Apps & Pin" + "Quick Menu"
+    val safeTileIndex = selectedTileIndex.coerceIn(0, (totalRowTiles - 1).coerceAtLeast(0))
+    val focusedTitle = when {
+        safeTileIndex < pinnedApps.size -> pinnedApps[safeTileIndex].label
+        safeTileIndex == pinnedApps.size -> "All Apps & Pin Manager"
+        else -> "System Quick Menu"
+    }
+    val focusedPackage = pinnedApps.getOrNull(safeTileIndex)?.packageName
+
+    // Handle all controller commands deterministically
+    LaunchedEffect(Unit) {
+        commands.collect { cmd ->
+            lastInteractionMs = System.currentTimeMillis()
+            if (isIdleDimmed) {
+                isIdleDimmed = false
+                SwitchAudioFeedback.playMenu(context)
+                return@collect
+            }
+
+            when {
+                showQuickMenu -> {
+                    val menuCount = 9
+                    when (cmd) {
+                        ControllerCommand.UP, ControllerCommand.LEFT, ControllerCommand.L1_PREV -> {
+                            selectedMenuIndex = (selectedMenuIndex - 1 + menuCount) % menuCount
+                            SwitchAudioFeedback.playMove(context)
+                        }
+                        ControllerCommand.DOWN, ControllerCommand.RIGHT, ControllerCommand.R1_NEXT -> {
+                            selectedMenuIndex = (selectedMenuIndex + 1) % menuCount
+                            SwitchAudioFeedback.playMove(context)
+                        }
+                        ControllerCommand.B_BACK, ControllerCommand.START_MENU -> {
+                            showQuickMenu = false
+                            SwitchAudioFeedback.playBack(context)
+                        }
+                        ControllerCommand.A_CONFIRM -> {
+                            SwitchAudioFeedback.playSelect(context)
+                            when (selectedMenuIndex) {
+                                0 -> audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0)
+                                1 -> audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0)
+                                2 -> audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, 0)
+                                3 -> {
+                                    showQuickMenu = false
+                                    context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                }
+                                4 -> prefs.uiSoundsEnabled = !prefs.uiSoundsEnabled
+                                5 -> prefs.idleDimmerEnabled = !prefs.idleDimmerEnabled
+                                6 -> {
+                                    showQuickMenu = false
+                                    isIdleDimmed = true
+                                }
+                                7 -> {
+                                    if (ShizukuHelper.getStatus() == ShizukuStatus.READY) {
+                                        val next = !prefs.bypassChargingEnabled
+                                        prefs.bypassChargingEnabled = next
+                                        ShizukuHelper.setBypassCharging(context, next)
+                                    } else {
+                                        showQuickMenu = false
+                                        DockHealthMonitor.openBypassChargingSettings(context)
+                                    }
+                                }
+                                8 -> showQuickMenu = false
+                            }
+                            menuStateTick++
+                        }
+                        else -> {}
+                    }
+                }
+
+                showAllAppsDrawer -> {
+                    val count = allApps.size.coerceAtLeast(1)
+                    val cols = 5
+                    when (cmd) {
+                        ControllerCommand.LEFT -> {
+                            selectedDrawerIndex = (selectedDrawerIndex - 1 + count) % count
+                            SwitchAudioFeedback.playMove(context)
+                        }
+                        ControllerCommand.RIGHT -> {
+                            selectedDrawerIndex = (selectedDrawerIndex + 1) % count
+                            SwitchAudioFeedback.playMove(context)
+                        }
+                        ControllerCommand.UP -> {
+                            selectedDrawerIndex = (selectedDrawerIndex - cols).coerceAtLeast(0)
+                            SwitchAudioFeedback.playMove(context)
+                        }
+                        ControllerCommand.DOWN -> {
+                            selectedDrawerIndex = (selectedDrawerIndex + cols).coerceAtMost(count - 1)
+                            SwitchAudioFeedback.playMove(context)
+                        }
+                        ControllerCommand.A_CONFIRM -> {
+                            allApps.getOrNull(selectedDrawerIndex)?.let { app ->
+                                showAllAppsDrawer = false
+                                onLaunchApp(app)
+                            }
+                        }
+                        ControllerCommand.X_ACTION -> {
+                            allApps.getOrNull(selectedDrawerIndex)?.let { app ->
+                                SwitchAudioFeedback.playSelect(context)
+                                prefs.togglePinnedPackage(app.packageName)
+                                reloadApps()
+                            }
+                        }
+                        ControllerCommand.B_BACK, ControllerCommand.Y_DRAWER -> {
+                            showAllAppsDrawer = false
+                            SwitchAudioFeedback.playBack(context)
+                        }
+                        ControllerCommand.START_MENU -> {
+                            showAllAppsDrawer = false
+                            selectedMenuIndex = 0
+                            showQuickMenu = true
+                            SwitchAudioFeedback.playMenu(context)
+                        }
+                        else -> {}
+                    }
+                }
+
+                else -> {
+                    val maxIdx = (pinnedApps.size + 1).coerceAtLeast(1)
+                    when (cmd) {
+                        ControllerCommand.LEFT, ControllerCommand.UP -> {
+                            selectedTileIndex = (safeTileIndex - 1 + (maxIdx + 1)) % (maxIdx + 1)
+                            SwitchAudioFeedback.playMove(context)
+                        }
+                        ControllerCommand.RIGHT, ControllerCommand.DOWN -> {
+                            selectedTileIndex = (safeTileIndex + 1) % (maxIdx + 1)
+                            SwitchAudioFeedback.playMove(context)
+                        }
+                        ControllerCommand.A_CONFIRM -> {
+                            when {
+                                safeTileIndex < pinnedApps.size -> onLaunchApp(pinnedApps[safeTileIndex])
+                                safeTileIndex == pinnedApps.size -> {
+                                    SwitchAudioFeedback.playMenu(context)
+                                    selectedDrawerIndex = 0
+                                    showAllAppsDrawer = true
+                                }
+                                else -> {
+                                    SwitchAudioFeedback.playMenu(context)
+                                    selectedMenuIndex = 0
+                                    showQuickMenu = true
+                                }
+                            }
+                        }
+                        ControllerCommand.Y_DRAWER -> {
+                            SwitchAudioFeedback.playMenu(context)
+                            selectedDrawerIndex = 0
+                            showAllAppsDrawer = true
+                        }
+                        ControllerCommand.START_MENU -> {
+                            SwitchAudioFeedback.playMenu(context)
+                            selectedMenuIndex = 0
+                            showQuickMenu = true
+                        }
+                        ControllerCommand.X_ACTION -> {
+                            if (focusedPackage != null) {
+                                prefs.togglePinnedPackage(focusedPackage)
+                                SwitchAudioFeedback.playSelect(context)
+                                reloadApps()
+                            }
+                        }
+                        ControllerCommand.L1_PREV -> {
+                            if (focusedPackage != null && prefs.movePinnedPackage(focusedPackage, -1)) {
+                                selectedTileIndex = (safeTileIndex - 1).coerceAtLeast(0)
+                                SwitchAudioFeedback.playMove(context)
+                                reloadApps()
+                            }
+                        }
+                        ControllerCommand.R1_NEXT -> {
+                            if (focusedPackage != null && prefs.movePinnedPackage(focusedPackage, +1)) {
+                                selectedTileIndex = (safeTileIndex + 1).coerceAtMost((pinnedApps.size - 1).coerceAtLeast(0))
+                                SwitchAudioFeedback.playMove(context)
+                                reloadApps()
+                            }
+                        }
+                        else -> {}
+                    }
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(safeTileIndex) {
+        runCatching { rowListState.animateScrollToItem(safeTileIndex) }
+    }
+
+    LaunchedEffect(selectedDrawerIndex, showAllAppsDrawer) {
+        if (showAllAppsDrawer && allApps.isNotEmpty()) {
+            runCatching { drawerGridState.animateScrollToItem(selectedDrawerIndex.coerceIn(0, allApps.lastIndex)) }
         }
     }
 
@@ -287,7 +660,7 @@ private fun SwitchTvHubScreen(
             }
 
             val ext = ExternalDisplayHelper.findExternalDisplay(context)
-            displaySummary = ext?.summary ?: "Preview ($targetDisplayId)"
+            displaySummary = ext?.summary ?: "Mirror / TV Mode"
 
             if (prefs.idleDimmerEnabled && !isIdleDimmed &&
                 System.currentTimeMillis() - lastInteractionMs >= idleTimeoutMs
@@ -307,81 +680,6 @@ private fun SwitchTvHubScreen(
                     colors = listOf(Color(0xFF0E1117), Color(0xFF171B24), Color(0xFF0C0E13))
                 )
             )
-            .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown) {
-                    lastInteractionMs = System.currentTimeMillis()
-                    if (isIdleDimmed) {
-                        isIdleDimmed = false
-                        SwitchAudioFeedback.playMenu(context)
-                        return@onPreviewKeyEvent true
-                    }
-
-                    when (event.nativeKeyEvent.keyCode) {
-                        KeyEvent.KEYCODE_BUTTON_START,
-                        KeyEvent.KEYCODE_MENU -> {
-                            showQuickMenu = !showQuickMenu
-                            if (showQuickMenu) SwitchAudioFeedback.playMenu(context)
-                            else SwitchAudioFeedback.playBack(context)
-                            true
-                        }
-                        KeyEvent.KEYCODE_BUTTON_Y -> {
-                            if (!showQuickMenu) {
-                                showAllAppsDrawer = !showAllAppsDrawer
-                                if (showAllAppsDrawer) SwitchAudioFeedback.playMenu(context)
-                                else SwitchAudioFeedback.playBack(context)
-                                true
-                            } else false
-                        }
-                        KeyEvent.KEYCODE_BUTTON_X -> {
-                            val pkg = focusedPackage
-                            if (pkg != null && !showAllAppsDrawer && !showQuickMenu) {
-                                prefs.togglePinnedPackage(pkg)
-                                SwitchAudioFeedback.playSelect(context)
-                                reloadApps()
-                                true
-                            } else false
-                        }
-                        KeyEvent.KEYCODE_BUTTON_L1 -> {
-                            val pkg = focusedPackage
-                            if (pkg != null && !showAllAppsDrawer && !showQuickMenu) {
-                                if (prefs.movePinnedPackage(pkg, -1)) {
-                                    SwitchAudioFeedback.playMove(context)
-                                    reloadApps()
-                                }
-                                true
-                            } else false
-                        }
-                        KeyEvent.KEYCODE_BUTTON_R1 -> {
-                            val pkg = focusedPackage
-                            if (pkg != null && !showAllAppsDrawer && !showQuickMenu) {
-                                if (prefs.movePinnedPackage(pkg, +1)) {
-                                    SwitchAudioFeedback.playMove(context)
-                                    reloadApps()
-                                }
-                                true
-                            } else false
-                        }
-                        KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK -> {
-                            when {
-                                showQuickMenu -> {
-                                    showQuickMenu = false
-                                    SwitchAudioFeedback.playBack(context)
-                                    true
-                                }
-                                showAllAppsDrawer -> {
-                                    showAllAppsDrawer = false
-                                    SwitchAudioFeedback.playBack(context)
-                                    true
-                                }
-                                else -> false
-                            }
-                        }
-                        else -> false
-                    }
-                } else {
-                    false
-                }
-            }
     ) {
         Column(
             modifier = Modifier
@@ -544,53 +842,48 @@ private fun SwitchTvHubScreen(
                 )
 
                 LazyRow(
+                    state = rowListState,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(22.dp)
                 ) {
                     itemsIndexed(pinnedApps, key = { _, app -> app.packageName }) { index, app ->
                         SwitchAppTile(
                             app = app,
-                            modifier = if (index == 0) Modifier.focusRequester(firstCardFocus) else Modifier,
-                            onFocused = {
-                                if (focusedPackage != app.packageName) {
-                                    SwitchAudioFeedback.playMove(context)
-                                }
-                                focusedTitle = app.label
-                                focusedPackage = app.packageName
-                            },
-                            onClick = { onLaunchApp(app) }
+                            isSelected = (safeTileIndex == index),
+                            onClick = {
+                                selectedTileIndex = index
+                                onLaunchApp(app)
+                            }
                         )
                     }
 
                     item(key = "add_more_apps_tile") {
+                        val idx = pinnedApps.size
                         ActionTile(
                             title = "All Apps & Pin",
                             icon = Icons.Rounded.Add,
                             accent = Color(0xFF00E5FF),
-                            onFocused = {
-                                SwitchAudioFeedback.playMove(context)
-                                focusedTitle = "All Apps & Pin Manager"
-                                focusedPackage = null
-                            },
+                            isSelected = (safeTileIndex == idx),
                             onClick = {
+                                selectedTileIndex = idx
                                 SwitchAudioFeedback.playMenu(context)
+                                selectedDrawerIndex = 0
                                 showAllAppsDrawer = true
                             }
                         )
                     }
 
                     item(key = "quick_menu_tile") {
+                        val idx = pinnedApps.size + 1
                         ActionTile(
                             title = "Quick Menu",
                             icon = Icons.Rounded.Settings,
                             accent = Color(0xFF4ADE80),
-                            onFocused = {
-                                SwitchAudioFeedback.playMove(context)
-                                focusedTitle = "System Quick Menu"
-                                focusedPackage = null
-                            },
+                            isSelected = (safeTileIndex == idx),
                             onClick = {
+                                selectedTileIndex = idx
                                 SwitchAudioFeedback.playMenu(context)
+                                selectedMenuIndex = 0
                                 showQuickMenu = true
                             }
                         )
@@ -629,11 +922,15 @@ private fun SwitchTvHubScreen(
             AllAppsDrawerOverlay(
                 allApps = allApps,
                 pinnedPackages = pinnedApps.map { it.packageName }.toSet(),
-                onLaunchApp = { app ->
+                selectedIndex = selectedDrawerIndex.coerceIn(0, (allApps.size - 1).coerceAtLeast(0)),
+                gridState = drawerGridState,
+                onLaunchApp = { idx, app ->
+                    selectedDrawerIndex = idx
                     showAllAppsDrawer = false
                     onLaunchApp(app)
                 },
-                onTogglePin = { app ->
+                onTogglePin = { idx, app ->
+                    selectedDrawerIndex = idx
                     SwitchAudioFeedback.playSelect(context)
                     prefs.togglePinnedPackage(app.packageName)
                     reloadApps()
@@ -650,6 +947,9 @@ private fun SwitchTvHubScreen(
             InHubQuickMenuOverlay(
                 health = health,
                 prefs = prefs,
+                selectedIndex = selectedMenuIndex,
+                stateTick = menuStateTick,
+                onSelectIndex = { selectedMenuIndex = it },
                 onTriggerScreensaver = {
                     showQuickMenu = false
                     isIdleDimmed = true
@@ -706,26 +1006,19 @@ private fun SwitchTvHubScreen(
 @Composable
 private fun SwitchAppTile(
     app: AppEntry,
-    modifier: Modifier = Modifier,
-    onFocused: () -> Unit,
+    isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.08f else 1.0f,
+        targetValue = if (isSelected) 1.08f else 1.0f,
         animationSpec = tween(140),
         label = "tileScale"
     )
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier
+        modifier = Modifier
             .scale(scale)
-            .onFocusChanged {
-                isFocused = it.isFocused
-                if (it.isFocused) onFocused()
-            }
-            .focusable()
             .clickable { onClick() }
     ) {
         Box(
@@ -739,8 +1032,8 @@ private fun SwitchAppTile(
                     )
                 )
                 .border(
-                    width = if (isFocused) 4.dp else 1.5.dp,
-                    color = if (isFocused) Color(0xFF00E5FF) else Color(0xFF2E3545),
+                    width = if (isSelected) 4.dp else 1.5.dp,
+                    color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF2E3545),
                     shape = RoundedCornerShape(22.dp)
                 ),
             contentAlignment = Alignment.Center
@@ -765,9 +1058,9 @@ private fun SwitchAppTile(
         Spacer(modifier = Modifier.height(10.dp))
         Text(
             text = app.label,
-            color = if (isFocused) Color(0xFF00E5FF) else Color(0xFFB8C0D0),
+            color = if (isSelected) Color(0xFF00E5FF) else Color(0xFFB8C0D0),
             fontSize = 15.sp,
-            fontWeight = if (isFocused) FontWeight.Bold else FontWeight.Medium,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.width(226.dp)
@@ -780,12 +1073,11 @@ private fun ActionTile(
     title: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     accent: Color,
-    onFocused: () -> Unit,
+    isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.08f else 1.0f,
+        targetValue = if (isSelected) 1.08f else 1.0f,
         animationSpec = tween(140),
         label = "actionScale"
     )
@@ -794,11 +1086,6 @@ private fun ActionTile(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .scale(scale)
-            .onFocusChanged {
-                isFocused = it.isFocused
-                if (it.isFocused) onFocused()
-            }
-            .focusable()
             .clickable { onClick() }
     ) {
         Box(
@@ -808,8 +1095,8 @@ private fun ActionTile(
                 .clip(RoundedCornerShape(22.dp))
                 .background(Color(0xFF191D27))
                 .border(
-                    width = if (isFocused) 4.dp else 1.5.dp,
-                    color = if (isFocused) accent else Color(0xFF2E3545),
+                    width = if (isSelected) 4.dp else 1.5.dp,
+                    color = if (isSelected) accent else Color(0xFF2E3545),
                     shape = RoundedCornerShape(22.dp)
                 ),
             contentAlignment = Alignment.Center
@@ -817,16 +1104,16 @@ private fun ActionTile(
             Icon(
                 imageVector = icon,
                 contentDescription = title,
-                tint = if (isFocused) accent else Color(0xFF9BA3B4),
+                tint = if (isSelected) accent else Color(0xFF9BA3B4),
                 modifier = Modifier.size(58.dp)
             )
         }
         Spacer(modifier = Modifier.height(10.dp))
         Text(
             text = title,
-            color = if (isFocused) accent else Color(0xFFB8C0D0),
+            color = if (isSelected) accent else Color(0xFFB8C0D0),
             fontSize = 15.sp,
-            fontWeight = if (isFocused) FontWeight.Bold else FontWeight.Medium
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
         )
     }
 }
@@ -835,6 +1122,9 @@ private fun ActionTile(
 private fun InHubQuickMenuOverlay(
     health: DockHealthSnapshot,
     prefs: DockPreferences,
+    selectedIndex: Int,
+    stateTick: Int,
+    onSelectIndex: (Int) -> Unit,
     onTriggerScreensaver: () -> Unit,
     onClose: () -> Unit
 ) {
@@ -844,11 +1134,15 @@ private fun InHubQuickMenuOverlay(
     var isMuted by remember { mutableStateOf(audioManager.isStreamMute(AudioManager.STREAM_MUSIC)) }
     var uiSounds by remember { mutableStateOf(prefs.uiSoundsEnabled) }
     var idleDimmer by remember { mutableStateOf(prefs.idleDimmerEnabled) }
-    val firstItemFocus = remember { FocusRequester() }
+    var bypassEnabled by remember { mutableStateOf(prefs.bypassChargingEnabled) }
+    val shizukuReady = remember(selectedIndex, stateTick) { ShizukuHelper.getStatus() == ShizukuStatus.READY }
 
-    LaunchedEffect(Unit) {
-        delay(80)
-        runCatching { firstItemFocus.requestFocus() }
+    LaunchedEffect(selectedIndex, stateTick) {
+        volumePct = readVolumePct(audioManager)
+        isMuted = audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
+        uiSounds = prefs.uiSoundsEnabled
+        idleDimmer = prefs.idleDimmerEnabled
+        bypassEnabled = prefs.bypassChargingEnabled
     }
 
     Box(
@@ -895,8 +1189,10 @@ private fun InHubQuickMenuOverlay(
                 ) {
                     QuickMenuButton(
                         label = "Vol -",
-                        modifier = Modifier.weight(1f).focusRequester(firstItemFocus),
+                        isSelected = (selectedIndex == 0),
+                        modifier = Modifier.weight(1f),
                         onClick = {
+                            onSelectIndex(0)
                             audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0)
                             volumePct = readVolumePct(audioManager)
                             isMuted = audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
@@ -904,8 +1200,10 @@ private fun InHubQuickMenuOverlay(
                     )
                     QuickMenuButton(
                         label = "Vol +",
+                        isSelected = (selectedIndex == 1),
                         modifier = Modifier.weight(1f),
                         onClick = {
+                            onSelectIndex(1)
                             audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0)
                             volumePct = readVolumePct(audioManager)
                             isMuted = audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
@@ -913,8 +1211,10 @@ private fun InHubQuickMenuOverlay(
                     )
                     QuickMenuButton(
                         label = if (isMuted) "Unmute" else "Mute",
+                        isSelected = (selectedIndex == 2),
                         modifier = Modifier.weight(1f),
                         onClick = {
+                            onSelectIndex(2)
                             audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, 0)
                             volumePct = readVolumePct(audioManager)
                             isMuted = audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
@@ -924,8 +1224,10 @@ private fun InHubQuickMenuOverlay(
 
                 QuickMenuButton(
                     label = "Audio Output / Bluetooth Settings",
+                    isSelected = (selectedIndex == 3),
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
+                        onSelectIndex(3)
                         onClose()
                         context.startActivity(
                             Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -934,37 +1236,61 @@ private fun InHubQuickMenuOverlay(
                 )
                 QuickMenuButton(
                     label = "UI Navigation Sounds: ${if (uiSounds) "ON" else "OFF"}",
+                    isSelected = (selectedIndex == 4),
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
+                        onSelectIndex(4)
                         uiSounds = !uiSounds
                         prefs.uiSoundsEnabled = uiSounds
                     }
                 )
                 QuickMenuButton(
                     label = "5-Min Idle Screensaver: ${if (idleDimmer) "ON" else "OFF"}",
+                    isSelected = (selectedIndex == 5),
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
+                        onSelectIndex(5)
                         idleDimmer = !idleDimmer
                         prefs.idleDimmerEnabled = idleDimmer
                     }
                 )
                 QuickMenuButton(
                     label = "Screensaver Now",
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = onTriggerScreensaver
-                )
-                QuickMenuButton(
-                    label = "Bypass Charging / Game Assistant",
+                    isSelected = (selectedIndex == 6),
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
-                        onClose()
-                        DockHealthMonitor.openBypassChargingSettings(context)
+                        onSelectIndex(6)
+                        onTriggerScreensaver()
+                    }
+                )
+                QuickMenuButton(
+                    label = if (shizukuReady) {
+                        "Bypass Charging: ${if (bypassEnabled) "ON" else "OFF"} (Press A to Toggle)"
+                    } else {
+                        "Bypass Charging / Game Assistant"
+                    },
+                    isSelected = (selectedIndex == 7),
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        onSelectIndex(7)
+                        if (ShizukuHelper.getStatus() == ShizukuStatus.READY) {
+                            bypassEnabled = !bypassEnabled
+                            prefs.bypassChargingEnabled = bypassEnabled
+                            ShizukuHelper.setBypassCharging(context, bypassEnabled)
+                        } else {
+                            onClose()
+                            DockHealthMonitor.openBypassChargingSettings(context)
+                        }
                     }
                 )
                 QuickMenuButton(
                     label = "Close Menu (B)",
+                    isSelected = (selectedIndex == 8),
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = onClose
+                    onClick = {
+                        onSelectIndex(8)
+                        onClose()
+                    }
                 )
             }
         }
@@ -974,25 +1300,20 @@ private fun InHubQuickMenuOverlay(
 @Composable
 private fun QuickMenuButton(
     label: String,
+    isSelected: Boolean,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
-    var isFocused by remember { mutableStateOf(false) }
 
     Surface(
-        color = if (isFocused) Color(0xFF004456) else Color(0xFF1F2430),
+        color = if (isSelected) Color(0xFF004456) else Color(0xFF1F2430),
         shape = RoundedCornerShape(12.dp),
         border = BorderStroke(
-            width = if (isFocused) 2.dp else 1.dp,
-            color = if (isFocused) Color(0xFF00E5FF) else Color(0xFF2E3545)
+            width = if (isSelected) 2.dp else 1.dp,
+            color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF2E3545)
         ),
         modifier = modifier
-            .onFocusChanged {
-                isFocused = it.isFocused
-                if (it.isFocused) SwitchAudioFeedback.playMove(context)
-            }
-            .focusable()
             .clickable {
                 SwitchAudioFeedback.playSelect(context)
                 onClick()
@@ -1002,7 +1323,7 @@ private fun QuickMenuButton(
             text = label,
             color = Color.White,
             fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp)
         )
     }
@@ -1018,8 +1339,10 @@ private fun readVolumePct(audioManager: AudioManager): Int {
 private fun AllAppsDrawerOverlay(
     allApps: List<AppEntry>,
     pinnedPackages: Set<String>,
-    onLaunchApp: (AppEntry) -> Unit,
-    onTogglePin: (AppEntry) -> Unit,
+    selectedIndex: Int,
+    gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
+    onLaunchApp: (Int, AppEntry) -> Unit,
+    onTogglePin: (Int, AppEntry) -> Unit,
     onClose: () -> Unit
 ) {
     Box(
@@ -1046,7 +1369,7 @@ private fun AllAppsDrawerOverlay(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "• Press A to Launch, X to Pin/Unpin",
+                        text = "• Press A to Launch, X to Pin/Unpin, B to Close",
                         color = Color(0xFF9BA3B4),
                         fontSize = 14.sp
                     )
@@ -1068,36 +1391,25 @@ private fun AllAppsDrawerOverlay(
             Spacer(modifier = Modifier.height(20.dp))
 
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 175.dp),
+                state = gridState,
+                columns = GridCells.Fixed(5),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(allApps, key = { it.packageName }) { app ->
+                itemsIndexed(allApps, key = { _, app -> app.packageName }) { index, app ->
                     val isPinned = pinnedPackages.contains(app.packageName)
-                    var isFocused by remember { mutableStateOf(false) }
+                    val isSelected = (index == selectedIndex)
 
                     Surface(
-                        color = if (isFocused) Color(0xFF232B3A) else Color(0xFF171B24),
+                        color = if (isSelected) Color(0xFF232B3A) else Color(0xFF171B24),
                         shape = RoundedCornerShape(16.dp),
                         border = BorderStroke(
-                            width = if (isFocused) 3.dp else 1.dp,
-                            color = if (isFocused) Color(0xFF00E5FF) else Color(0xFF282F3E)
+                            width = if (isSelected) 3.dp else 1.dp,
+                            color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF282F3E)
                         ),
                         modifier = Modifier
-                            .onFocusChanged { isFocused = it.isFocused }
-                            .focusable()
-                            .onPreviewKeyEvent { key ->
-                                if (key.type == KeyEventType.KeyDown &&
-                                    key.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_BUTTON_X
-                                ) {
-                                    onTogglePin(app)
-                                    true
-                                } else {
-                                    false
-                                }
-                            }
-                            .clickable { onLaunchApp(app) }
+                            .clickable { onLaunchApp(index, app) }
                     ) {
                         Column(
                             modifier = Modifier.padding(14.dp),
@@ -1120,16 +1432,16 @@ private fun AllAppsDrawerOverlay(
                                         modifier = Modifier
                                             .size(20.dp)
                                             .align(Alignment.TopEnd)
-                                            .clickable { onTogglePin(app) }
+                                            .clickable { onTogglePin(index, app) }
                                     )
                                 }
                             }
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
                                 text = app.label,
-                                color = Color.White,
+                                color = if (isSelected) Color(0xFF00E5FF) else Color.White,
                                 fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )

@@ -10,8 +10,12 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.Display
+import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -73,6 +77,7 @@ import com.legion.switchdock.display.ExternalDisplayHelper
 import com.legion.switchdock.display.ExternalDisplayInfo
 import com.legion.switchdock.display.ExternalDisplayMode
 import com.legion.switchdock.service.DockMonitorService
+import com.legion.switchdock.service.QuickMenuOverlay
 import com.legion.switchdock.shizuku.ShizukuHelper
 import com.legion.switchdock.shizuku.ShizukuStatus
 import kotlinx.coroutines.delay
@@ -132,24 +137,38 @@ class MainActivity : ComponentActivity() {
                 CompanionRoot(
                     forceDockedBlackout = forceDockedBlackout,
                     onSetBrightness = { setScreenBrightness(it) },
-                    onSetWindowFocusable = { focusable ->
-                        if (focusable) {
-                            window.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
-                        } else {
-                            window.addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
-                        }
-                    },
                     onEnterBlackout = {
                         forceDockedBlackout = true
                     },
                     onExitBlackout = {
                         forceDockedBlackout = false
                         setScreenBrightness(-1.0f)
-                        window.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
                     }
                 )
             }
         }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val quickMenu = QuickMenuOverlay.activeInstance
+        if (quickMenu != null && quickMenu.isShowing) {
+            if (quickMenu.handleKeyEvent(event)) return true
+        }
+        if (TvHubActivity.isInstanceResumed) {
+            if (TvHubActivity.dispatchGlobalKeyEvent(event)) return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        val quickMenu = QuickMenuOverlay.activeInstance
+        if (quickMenu != null && quickMenu.isShowing) {
+            if (quickMenu.handleMotionEvent(event)) return true
+        }
+        if (TvHubActivity.isInstanceResumed) {
+            if (TvHubActivity.dispatchGlobalMotionEvent(event)) return true
+        }
+        return super.dispatchGenericMotionEvent(event)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -180,14 +199,14 @@ class MainActivity : ComponentActivity() {
 private fun CompanionRoot(
     forceDockedBlackout: Boolean,
     onSetBrightness: (Float) -> Unit,
-    onSetWindowFocusable: (Boolean) -> Unit,
     onEnterBlackout: () -> Unit,
     onExitBlackout: () -> Unit
 ) {
     val context = LocalContext.current
     val prefs = remember { DockPreferences(context) }
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
 
-    var externalDisplay by remember { mutableStateOf<ExternalDisplayInfo?>(null) }
+    var externalDisplay by remember { mutableStateOf<ExternalDisplayInfo?>(ExternalDisplayHelper.findExternalDisplay(context)) }
     var preferredModeId by remember { mutableStateOf(prefs.preferredDisplayModeId) }
     var hasOverlayPerm by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
     var hasAccessibilityPerm by remember { mutableStateOf(isAccessibilityEnabled(context)) }
@@ -199,6 +218,8 @@ private fun CompanionRoot(
     var uiSounds by remember { mutableStateOf(prefs.uiSoundsEnabled) }
     var idleDimmer by remember { mutableStateOf(prefs.idleDimmerEnabled) }
     var thermalWarning by remember { mutableStateOf(prefs.thermalWarningEnabled) }
+    var autoBypassCharging by remember { mutableStateOf(prefs.autoBypassChargingOnDock) }
+    var bypassChargingEnabled by remember { mutableStateOf(prefs.bypassChargingEnabled) }
     var shizukuScreenOff by remember { mutableStateOf(prefs.shizukuScreenOff) }
     var shizukuForceRelaunch by remember { mutableStateOf(prefs.shizukuForceRelaunch) }
 
@@ -241,6 +262,7 @@ private fun CompanionRoot(
             hasAccessibilityPerm = isAccessibilityEnabled(context)
             shizukuStatus = ShizukuHelper.getStatus()
             health = DockHealthMonitor.readSnapshot(context)
+            bypassChargingEnabled = prefs.bypassChargingEnabled
             delay(1500)
         }
     }
@@ -250,10 +272,34 @@ private fun CompanionRoot(
     LaunchedEffect(showDockedMode) {
         if (showDockedMode) {
             onSetBrightness(0.01f)
-            onSetWindowFocusable(false)
         } else {
             onSetBrightness(-1.0f)
-            onSetWindowFocusable(true)
+        }
+    }
+
+    fun launchHubAndDim(requestedDisplayId: Int, dimTablet: Boolean) {
+        val liveExternalId = ExternalDisplayHelper.findExternalDisplay(context)?.displayId
+        val actualTargetId = if (requestedDisplayId != Display.DEFAULT_DISPLAY) {
+            requestedDisplayId
+        } else {
+            liveExternalId ?: Display.DEFAULT_DISPLAY
+        }
+        if (dimTablet) {
+            onEnterBlackout()
+        }
+        val tvIntent = Intent(context, TvHubActivity::class.java).apply {
+            putExtra(TvHubActivity.EXTRA_DISPLAY_ID, actualTargetId)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+        }
+        ExternalDisplayHelper.launchIntentOnDisplay(context, tvIntent, actualTargetId)
+        if (actualTargetId != Display.DEFAULT_DISPLAY) {
+            mainHandler.postDelayed({
+                val followUpIntent = Intent(context, TvHubActivity::class.java).apply {
+                    putExtra(TvHubActivity.EXTRA_DISPLAY_ID, actualTargetId)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                }
+                ExternalDisplayHelper.launchIntentOnDisplay(context, followUpIntent, actualTargetId)
+            }, 220L)
         }
     }
 
@@ -262,15 +308,7 @@ private fun CompanionRoot(
             displayInfo = externalDisplay,
             onFocusTvHub = {
                 val targetId = externalDisplay?.displayId ?: Display.DEFAULT_DISPLAY
-                val tvIntent = Intent(context, TvHubActivity::class.java).apply {
-                    putExtra(TvHubActivity.EXTRA_DISPLAY_ID, targetId)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                }
-                ExternalDisplayHelper.launchIntentOnDisplay(
-                    context,
-                    tvIntent,
-                    targetId
-                )
+                launchHubAndDim(targetId, dimTablet = true)
             },
             onExitBlackout = onExitBlackout
         )
@@ -288,6 +326,8 @@ private fun CompanionRoot(
             uiSounds = uiSounds,
             idleDimmer = idleDimmer,
             thermalWarning = thermalWarning,
+            autoBypassCharging = autoBypassCharging,
+            bypassChargingEnabled = bypassChargingEnabled,
             shizukuScreenOff = shizukuScreenOff,
             shizukuForceRelaunch = shizukuForceRelaunch,
             onToggleService = { enabled ->
@@ -314,6 +354,25 @@ private fun CompanionRoot(
             onToggleThermalWarning = {
                 thermalWarning = it
                 prefs.thermalWarningEnabled = it
+            },
+            onToggleAutoBypassCharging = {
+                autoBypassCharging = it
+                prefs.autoBypassChargingOnDock = it
+                if (it && externalDisplay != null && ShizukuHelper.getStatus() == ShizukuStatus.READY) {
+                    ShizukuHelper.setBypassCharging(context, true)
+                    bypassChargingEnabled = true
+                    prefs.bypassChargingEnabled = true
+                }
+            },
+            onToggleBypassChargingNow = {
+                val next = !bypassChargingEnabled
+                bypassChargingEnabled = next
+                prefs.bypassChargingEnabled = next
+                if (ShizukuHelper.getStatus() == ShizukuStatus.READY) {
+                    ShizukuHelper.setBypassCharging(context, next)
+                } else {
+                    DockHealthMonitor.openBypassChargingSettings(context)
+                }
             },
             onOpenBypassCharging = {
                 DockHealthMonitor.openBypassChargingSettings(context)
@@ -369,14 +428,9 @@ private fun CompanionRoot(
                 }
             },
             onLaunchTvHub = { targetId ->
-                if (targetId != Display.DEFAULT_DISPLAY && blackoutTablet) {
-                    onEnterBlackout()
-                }
-                val tvIntent = Intent(context, TvHubActivity::class.java).apply {
-                    putExtra(TvHubActivity.EXTRA_DISPLAY_ID, targetId)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                }
-                ExternalDisplayHelper.launchIntentOnDisplay(context, tvIntent, targetId)
+                val liveExt = ExternalDisplayHelper.findExternalDisplay(context)
+                val shouldDim = (targetId != Display.DEFAULT_DISPLAY) || (liveExt != null)
+                launchHubAndDim(targetId, dimTablet = shouldDim)
             },
             onDimTablet = onEnterBlackout
         )
@@ -496,6 +550,8 @@ private fun SetupDashboardScreen(
     uiSounds: Boolean,
     idleDimmer: Boolean,
     thermalWarning: Boolean,
+    autoBypassCharging: Boolean,
+    bypassChargingEnabled: Boolean,
     shizukuScreenOff: Boolean,
     shizukuForceRelaunch: Boolean,
     onToggleService: (Boolean) -> Unit,
@@ -504,6 +560,8 @@ private fun SetupDashboardScreen(
     onToggleUiSounds: (Boolean) -> Unit,
     onToggleIdleDimmer: (Boolean) -> Unit,
     onToggleThermalWarning: (Boolean) -> Unit,
+    onToggleAutoBypassCharging: (Boolean) -> Unit,
+    onToggleBypassChargingNow: () -> Unit,
     onOpenBypassCharging: () -> Unit,
     onPickBanner: (String) -> Unit,
     onClearBanner: (String) -> Unit,
@@ -546,15 +604,16 @@ private fun SetupDashboardScreen(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (externalDisplay != null) {
-                    Button(
-                        onClick = { onLaunchTvHub(externalDisplay.displayId) },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
-                    ) {
-                        Icon(Icons.Rounded.Tv, contentDescription = null, tint = Color.Black)
-                        Spacer(Modifier.size(6.dp))
-                        Text("Open on TV", color = Color.Black, fontWeight = FontWeight.Bold)
-                    }
+                Button(
+                    onClick = {
+                        val targetId = externalDisplay?.displayId ?: Display.DEFAULT_DISPLAY
+                        onLaunchTvHub(targetId)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
+                ) {
+                    Icon(Icons.Rounded.Tv, contentDescription = null, tint = Color.Black)
+                    Spacer(Modifier.size(6.dp))
+                    Text("Open on TV", color = Color.Black, fontWeight = FontWeight.Bold)
                 }
                 OutlinedButton(
                     onClick = onDimTablet,
@@ -562,13 +621,15 @@ private fun SetupDashboardScreen(
                 ) {
                     Text("Dim Tablet", color = Color.White)
                 }
-                OutlinedButton(
-                    onClick = { onLaunchTvHub(Display.DEFAULT_DISPLAY) },
-                    border = BorderStroke(1.dp, Color(0xFF374151))
-                ) {
-                    Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White)
-                    Spacer(Modifier.size(4.dp))
-                    Text("Preview Hub", color = Color.White)
+                if (externalDisplay != null) {
+                    OutlinedButton(
+                        onClick = { onLaunchTvHub(Display.DEFAULT_DISPLAY) },
+                        border = BorderStroke(1.dp, Color(0xFF374151))
+                    ) {
+                        Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White)
+                        Spacer(Modifier.size(4.dp))
+                        Text("Preview Hub", color = Color.White)
+                    }
                 }
             }
         }
@@ -700,19 +761,39 @@ private fun SetupDashboardScreen(
                 fontWeight = FontWeight.Medium
             )
             ToggleRow(
+                title = "Auto-Enable Bypass Charging While Docked",
+                subtitle = "Automatically keeps Bypass Charging ON while docked to TV and restores normal charging on unplug (via Shizuku)",
+                checked = autoBypassCharging,
+                onCheckedChange = onToggleAutoBypassCharging
+            )
+            ToggleRow(
                 title = "TV Thermal Warning (>= 41°C)",
                 subtitle = "Shows a bypass-charging reminder on the TV status bar if battery warms up",
                 checked = thermalWarning,
                 onCheckedChange = onToggleThermalWarning
             )
-            OutlinedButton(
-                onClick = onOpenBypassCharging,
-                border = BorderStroke(1.dp, Color(0xFF00E5FF))
-            ) {
-                Text("Open Game Assistant / Bypass Charging", color = Color(0xFF00E5FF))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = onToggleBypassChargingNow,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (bypassChargingEnabled) Color(0xFF4ADE80) else Color(0xFF00E5FF)
+                    )
+                ) {
+                    Text(
+                        text = if (bypassChargingEnabled) "✓ Bypass Charging: ON" else "Enable Bypass Charging Now",
+                        color = Color.Black,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                OutlinedButton(
+                    onClick = onOpenBypassCharging,
+                    border = BorderStroke(1.dp, Color(0xFF00E5FF))
+                ) {
+                    Text("Open Game Assistant", color = Color(0xFF00E5FF))
+                }
             }
             Text(
-                text = "Tip: Hold Guide (or press L1+R1+Start) while docked to open the Quick Menu over any game.",
+                text = "Tip: Hold Guide (or press L1+R1+Start/Select) while docked to open the Quick Menu over any game.",
                 color = Color(0xFF9BA3B4),
                 fontSize = 12.sp
             )

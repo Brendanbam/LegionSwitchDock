@@ -30,6 +30,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
+            android:taskAffinity="com.legion.switchdock.tablet"
             android:theme="@style/Theme.LegionSwitchDock">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -37,12 +38,13 @@
             </intent-filter>
         </activity>
 
-        <!-- 10-Foot Switch-Style TV Hub Activity (targets external displayId) -->
+        <!-- 10-Foot Switch-Style TV Hub Activity (targets external displayId in its own Task) -->
         <activity
             android:name=".TvHubActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:resizeableActivity="false"
+            android:taskAffinity="com.legion.switchdock.tvhub"
+            android:resizeableActivity="true"
             android:screenOrientation="landscape"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboard|keyboardHidden|navigation"
             android:theme="@style/Theme.LegionSwitchDock" />
