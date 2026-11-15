@@ -39,6 +39,10 @@ class DockPreferences(context: Context) {
         get() = prefs.getBoolean(KEY_THERMAL_WARNING, true)
         set(value) = prefs.edit().putBoolean(KEY_THERMAL_WARNING, value).apply()
 
+    var preferredDisplayModeId: Int
+        get() = prefs.getInt(KEY_PREFERRED_DISPLAY_MODE_ID, 0)
+        set(value) = prefs.edit().putInt(KEY_PREFERRED_DISPLAY_MODE_ID, value).apply()
+
     var hasInitializedPins: Boolean
         get() = prefs.getBoolean(KEY_PINS_INITIALIZED, false)
         set(value) = prefs.edit().putBoolean(KEY_PINS_INITIALIZED, value).apply()
@@ -87,6 +91,7 @@ class DockPreferences(context: Context) {
         private const val KEY_UI_SOUNDS = "ui_sounds_enabled"
         private const val KEY_IDLE_DIMMER = "idle_dimmer_enabled"
         private const val KEY_THERMAL_WARNING = "thermal_warning_enabled"
+        private const val KEY_PREFERRED_DISPLAY_MODE_ID = "preferred_display_mode_id"
         private const val KEY_PINS_INITIALIZED = "pins_initialized"
         private const val KEY_PINNED_PACKAGES = "pinned_packages"
     }

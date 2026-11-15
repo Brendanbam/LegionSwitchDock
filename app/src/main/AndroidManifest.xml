@@ -42,7 +42,7 @@
             android:name=".TvHubActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:resizeableActivity="true"
+            android:resizeableActivity="false"
             android:screenOrientation="landscape"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboard|keyboardHidden|navigation"
             android:theme="@style/Theme.LegionSwitchDock" />

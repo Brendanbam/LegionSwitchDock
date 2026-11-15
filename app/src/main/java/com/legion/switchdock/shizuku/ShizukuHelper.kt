@@ -110,4 +110,15 @@ object ShizukuHelper {
     fun forceStopPackage(context: Context, packageName: String) {
         runCommand(context, "am force-stop $packageName")
     }
+
+    fun setExternalDisplayMode(
+        context: Context,
+        displayId: Int,
+        width: Int,
+        height: Int,
+        refreshRateHz: Int
+    ): Boolean {
+        val cmd = "cmd display set-user-preferred-display-mode $width $height ${refreshRateHz}.0 $displayId"
+        return runCommand(context, cmd)
+    }
 }

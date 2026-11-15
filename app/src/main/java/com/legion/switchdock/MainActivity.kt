@@ -70,6 +70,7 @@ import com.legion.switchdock.data.DockHealthSnapshot
 import com.legion.switchdock.data.DockPreferences
 import com.legion.switchdock.display.ExternalDisplayHelper
 import com.legion.switchdock.display.ExternalDisplayInfo
+import com.legion.switchdock.display.ExternalDisplayMode
 import com.legion.switchdock.service.DockMonitorService
 import com.legion.switchdock.shizuku.ShizukuHelper
 import com.legion.switchdock.shizuku.ShizukuStatus
@@ -100,6 +101,20 @@ class MainActivity : ComponentActivity() {
         val prefs = DockPreferences(this)
         if (prefs.isServiceEnabled) {
             DockMonitorService.start(this)
+        }
+
+        // If MainActivity was opened on the external TV (e.g. from the TV's Extended Mode app drawer),
+        // redirect straight to TvHubActivity on the TV and close MainActivity on the TV so the portrait
+        // blackout remote never appears on the TV!
+        val currentDisplayId = display?.displayId ?: Display.DEFAULT_DISPLAY
+        if (currentDisplayId != Display.DEFAULT_DISPLAY) {
+            val tvIntent = Intent(this, TvHubActivity::class.java).apply {
+                putExtra(TvHubActivity.EXTRA_DISPLAY_ID, currentDisplayId)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+            ExternalDisplayHelper.launchIntentOnDisplay(this, tvIntent, currentDisplayId)
+            finish()
+            return
         }
 
         forceDockedBlackout = intent.getBooleanExtra(EXTRA_DOCKED_MODE, false)
@@ -159,6 +174,7 @@ private fun CompanionRoot(
     val prefs = remember { DockPreferences(context) }
 
     var externalDisplay by remember { mutableStateOf<ExternalDisplayInfo?>(null) }
+    var preferredModeId by remember { mutableStateOf(prefs.preferredDisplayModeId) }
     var hasOverlayPerm by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
     var hasAccessibilityPerm by remember { mutableStateOf(isAccessibilityEnabled(context)) }
     var shizukuStatus by remember { mutableStateOf(ShizukuHelper.getStatus()) }
@@ -315,6 +331,26 @@ private fun CompanionRoot(
             onRequestShizuku = {
                 ShizukuHelper.requestPermission()
             },
+            preferredModeId = preferredModeId,
+            onSelectDisplayMode = { mode ->
+                preferredModeId = mode.modeId
+                prefs.preferredDisplayModeId = mode.modeId
+                val ext = externalDisplay
+                if (ext != null) {
+                    ShizukuHelper.setExternalDisplayMode(
+                        context,
+                        ext.displayId,
+                        mode.width,
+                        mode.height,
+                        mode.refreshRateHz
+                    )
+                    val tvIntent = Intent(context, TvHubActivity::class.java).apply {
+                        putExtra(TvHubActivity.EXTRA_DISPLAY_ID, ext.displayId)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    }
+                    ExternalDisplayHelper.launchIntentOnDisplay(context, tvIntent, ext.displayId)
+                }
+            },
             onLaunchTvHub = { targetId ->
                 val tvIntent = Intent(context, TvHubActivity::class.java).apply {
                     putExtra(TvHubActivity.EXTRA_DISPLAY_ID, targetId)
@@ -454,6 +490,8 @@ private fun SetupDashboardScreen(
     onRequestOverlay: () -> Unit,
     onRequestAccessibility: () -> Unit,
     onRequestShizuku: () -> Unit,
+    preferredModeId: Int,
+    onSelectDisplayMode: (ExternalDisplayMode) -> Unit,
     onLaunchTvHub: (Int) -> Unit
 ) {
     Column(
@@ -506,15 +544,50 @@ private fun SetupDashboardScreen(
             }
         }
 
-        // Dock Status Card
-        SectionCard(title = "Display Status") {
+        // Dock Status & HDMI Resolution / FPS Unlocker Card
+        SectionCard(title = "Display Status & HDMI Resolution / FPS Unlocker") {
             val statusColor = if (externalDisplay != null) Color(0xFF4ADE80) else Color(0xFF9BA3B4)
             val statusText = if (externalDisplay != null) {
                 "TV Connected: ${externalDisplay.name} (${externalDisplay.summary})"
             } else {
-                "Undocked — Plug into the short-edge USB-C 3.2 port for video out"
+                "Undocked (or in Mirror Mode) — Tap 'Preview Hub' above for Full-Screen Mirror Mode!"
             }
             Text(text = statusText, color = statusColor, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+
+            if (externalDisplay != null && externalDisplay.supportedModes.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "Hardware EDID Modes Detected (Tap to Lock Resolution & FPS):",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    externalDisplay.supportedModes.take(8).forEach { mode ->
+                        val isActive = (preferredModeId == mode.modeId) ||
+                            (preferredModeId == 0 && externalDisplay.activeModeId == mode.modeId)
+                        OutlinedButton(
+                            onClick = { onSelectDisplayMode(mode) },
+                            border = BorderStroke(
+                                1.dp,
+                                if (isActive) Color(0xFF00E5FF) else Color(0xFF374151)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = if (isActive) "✓ ${mode.label} (Active / Locked)" else mode.label,
+                                color = if (isActive) Color(0xFF00E5FF) else Color.White,
+                                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+            }
+            Text(
+                text = "4K@60fps Unlock Tip: On your Roku TV go to Settings → TV inputs → HDMI port → HDMI mode → select 'Standard (HDMI 2.0)' instead of 'Auto' (HDMI 1.4 caps 4K at 30fps). Also switch tablet Notification → 'Switch to Mirror Mode' to remove Lenovo's desktop taskbar and unlock full-screen 60Hz+!",
+                color = Color(0xFF9BA3B4),
+                fontSize = 12.sp
+            )
         }
 
         // Permissions & Service

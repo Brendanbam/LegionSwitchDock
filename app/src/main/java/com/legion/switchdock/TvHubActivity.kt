@@ -125,6 +125,7 @@ class TvHubActivity : ComponentActivity() {
             EXTRA_DISPLAY_ID,
             display?.displayId ?: Display.DEFAULT_DISPLAY
         )
+        applyPreferredDisplayMode()
 
         registerReceiver(
             undockReceiver,
@@ -149,6 +150,24 @@ class TvHubActivity : ComponentActivity() {
             EXTRA_DISPLAY_ID,
             display?.displayId ?: Display.DEFAULT_DISPLAY
         )
+        applyPreferredDisplayMode()
+        hideSystemBars()
+    }
+
+    private fun applyPreferredDisplayMode() {
+        val prefs = DockPreferences(this)
+        val ext = ExternalDisplayHelper.findExternalDisplay(this)
+        val desiredModeId = if (prefs.preferredDisplayModeId != 0) {
+            prefs.preferredDisplayModeId
+        } else {
+            // Auto-prefer highest >= 60Hz mode (e.g. 4K@60Hz or 1080p@60Hz+)
+            ext?.supportedModes?.firstOrNull()?.modeId ?: 0
+        }
+        if (desiredModeId != 0) {
+            val lp = window.attributes
+            lp.preferredDisplayModeId = desiredModeId
+            window.attributes = lp
+        }
     }
 
     override fun onDestroy() {
