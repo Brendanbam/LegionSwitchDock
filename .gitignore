@@ -14,3 +14,7 @@ captures/
 # Keystores
 *.jks
 *.keystore
+!app/debug.keystore
+
+# Local built APKs
+dist/*.apk
