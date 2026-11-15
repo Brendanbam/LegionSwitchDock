@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.Display
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -131,9 +132,20 @@ class MainActivity : ComponentActivity() {
                 CompanionRoot(
                     forceDockedBlackout = forceDockedBlackout,
                     onSetBrightness = { setScreenBrightness(it) },
+                    onSetWindowFocusable = { focusable ->
+                        if (focusable) {
+                            window.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
+                        } else {
+                            window.addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
+                        }
+                    },
+                    onEnterBlackout = {
+                        forceDockedBlackout = true
+                    },
                     onExitBlackout = {
                         forceDockedBlackout = false
                         setScreenBrightness(-1.0f)
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
                     }
                 )
             }
@@ -168,6 +180,8 @@ class MainActivity : ComponentActivity() {
 private fun CompanionRoot(
     forceDockedBlackout: Boolean,
     onSetBrightness: (Float) -> Unit,
+    onSetWindowFocusable: (Boolean) -> Unit,
+    onEnterBlackout: () -> Unit,
     onExitBlackout: () -> Unit
 ) {
     val context = LocalContext.current
@@ -231,28 +245,31 @@ private fun CompanionRoot(
         }
     }
 
-    val showDockedMode = forceDockedBlackout && externalDisplay != null
+    val showDockedMode = forceDockedBlackout
 
     LaunchedEffect(showDockedMode) {
         if (showDockedMode) {
             onSetBrightness(0.01f)
+            onSetWindowFocusable(false)
         } else {
             onSetBrightness(-1.0f)
+            onSetWindowFocusable(true)
         }
     }
 
     if (showDockedMode) {
         DockedBlackoutRemoteScreen(
-            displayInfo = externalDisplay!!,
+            displayInfo = externalDisplay,
             onFocusTvHub = {
+                val targetId = externalDisplay?.displayId ?: Display.DEFAULT_DISPLAY
                 val tvIntent = Intent(context, TvHubActivity::class.java).apply {
-                    putExtra(TvHubActivity.EXTRA_DISPLAY_ID, externalDisplay!!.displayId)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    putExtra(TvHubActivity.EXTRA_DISPLAY_ID, targetId)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 }
                 ExternalDisplayHelper.launchIntentOnDisplay(
                     context,
                     tvIntent,
-                    externalDisplay!!.displayId
+                    targetId
                 )
             },
             onExitBlackout = onExitBlackout
@@ -352,25 +369,30 @@ private fun CompanionRoot(
                 }
             },
             onLaunchTvHub = { targetId ->
+                if (targetId != Display.DEFAULT_DISPLAY && blackoutTablet) {
+                    onEnterBlackout()
+                }
                 val tvIntent = Intent(context, TvHubActivity::class.java).apply {
                     putExtra(TvHubActivity.EXTRA_DISPLAY_ID, targetId)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 }
                 ExternalDisplayHelper.launchIntentOnDisplay(context, tvIntent, targetId)
-            }
+            },
+            onDimTablet = onEnterBlackout
         )
     }
 }
 
 @Composable
 private fun DockedBlackoutRemoteScreen(
-    displayInfo: ExternalDisplayInfo,
+    displayInfo: ExternalDisplayInfo?,
     onFocusTvHub: () -> Unit,
     onExitBlackout: () -> Unit
 ) {
     val context = LocalContext.current
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     var showControls by remember { mutableStateOf(false) }
+    val displaySummaryText = displayInfo?.summary ?: "TV Docked"
 
     Box(
         modifier = Modifier
@@ -389,7 +411,7 @@ private fun DockedBlackoutRemoteScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "DOCKED TO TV • ${displayInfo.summary}",
+                    text = "DOCKED TO TV • $displaySummaryText",
                     color = Color.White.copy(alpha = 0.18f),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium
@@ -413,7 +435,7 @@ private fun DockedBlackoutRemoteScreen(
                     verticalArrangement = Arrangement.spacedBy(18.dp)
                 ) {
                     Text(
-                        text = "TV Remote • ${displayInfo.summary}",
+                        text = "TV Remote • $displaySummaryText",
                         color = Color.White,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold
@@ -492,7 +514,8 @@ private fun SetupDashboardScreen(
     onRequestShizuku: () -> Unit,
     preferredModeId: Int,
     onSelectDisplayMode: (ExternalDisplayMode) -> Unit,
-    onLaunchTvHub: (Int) -> Unit
+    onLaunchTvHub: (Int) -> Unit,
+    onDimTablet: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -532,6 +555,12 @@ private fun SetupDashboardScreen(
                         Spacer(Modifier.size(6.dp))
                         Text("Open on TV", color = Color.Black, fontWeight = FontWeight.Bold)
                     }
+                }
+                OutlinedButton(
+                    onClick = onDimTablet,
+                    border = BorderStroke(1.dp, Color(0xFF374151))
+                ) {
+                    Text("Dim Tablet", color = Color.White)
                 }
                 OutlinedButton(
                     onClick = { onLaunchTvHub(Display.DEFAULT_DISPLAY) },

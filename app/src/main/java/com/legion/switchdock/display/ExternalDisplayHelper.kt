@@ -79,11 +79,9 @@ object ExternalDisplayHelper {
         intent: Intent,
         displayId: Int
     ): Boolean {
-        return runCatching {
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val primarySuccess = runCatching {
             val options = ActivityOptions.makeBasic().apply {
-                // ALWAYS explicitly bind the target displayId (including DEFAULT_DISPLAY = 0)
-                // so tablet-only activities never leak onto the TV in Lenovo Extended Mode!
                 launchDisplayId = displayId
             }
             // Force WINDOWING_MODE_FULLSCREEN (1) on Lenovo ZUI Extended Mode so apps don't open in tiny floating boxes
@@ -91,15 +89,20 @@ object ExternalDisplayHelper {
                 val method = ActivityOptions::class.java.getMethod("setLaunchWindowingMode", Int::class.javaPrimitiveType)
                 method.invoke(options, 1) // 1 = WINDOWING_MODE_FULLSCREEN
             }
-            if (displayId != Display.DEFAULT_DISPLAY) {
-                val dm = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
-                val targetDisplay = dm.getDisplay(displayId)
-                if (targetDisplay != null) {
-                    val m = targetDisplay.mode
-                    options.launchBounds = Rect(0, 0, m.physicalWidth, m.physicalHeight)
+            context.startActivity(intent, options.toBundle())
+            true
+        }.getOrDefault(false)
+
+        if (primarySuccess) return true
+
+        // Clean fallback without reflection/windowing-mode overrides
+        return runCatching {
+            val fallbackOptions = ActivityOptions.makeBasic().apply {
+                if (displayId != Display.DEFAULT_DISPLAY) {
+                    launchDisplayId = displayId
                 }
             }
-            context.startActivity(intent, options.toBundle())
+            context.startActivity(intent, fallbackOptions.toBundle())
             true
         }.getOrDefault(false)
     }

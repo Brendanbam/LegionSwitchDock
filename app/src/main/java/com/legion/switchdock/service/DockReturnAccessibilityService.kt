@@ -84,21 +84,30 @@ class DockReturnAccessibilityService : AccessibilityService() {
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
-        val external = resolveExternalDisplay()
-        if (external == null) {
-            return super.onKeyEvent(event)
-        }
-
-        // Track L1 + R1 + Start combo anywhere while docked
+        // Track L1 + R1 + Start combo anywhere (Extended Mode or Mirror Mode)
         when (event.keyCode) {
             KeyEvent.KEYCODE_BUTTON_L1 -> l1Pressed = event.action == KeyEvent.ACTION_DOWN
             KeyEvent.KEYCODE_BUTTON_R1 -> r1Pressed = event.action == KeyEvent.ACTION_DOWN
             KeyEvent.KEYCODE_BUTTON_START -> {
                 if (event.action == KeyEvent.ACTION_DOWN && l1Pressed && r1Pressed) {
-                    quickMenuOverlay.toggle(external, lastForegroundPackage)
+                    val target = resolveTargetDisplay() ?: return super.onKeyEvent(event)
+                    quickMenuOverlay.toggle(target, lastForegroundPackage)
                     return true
                 }
             }
+        }
+
+        // If the Quick Menu overlay is currently open, intercept D-pad/A/B directly
+        // so the controller always operates it regardless of multi-display window focus!
+        if (::quickMenuOverlay.isInitialized && quickMenuOverlay.isShowing) {
+            if (quickMenuOverlay.handleKeyEvent(event)) {
+                return true
+            }
+        }
+
+        val external = resolveExternalDisplay()
+        if (external == null) {
+            return super.onKeyEvent(event)
         }
 
         // Guide button: tap = return to TV Hub, hold (>=450ms) = toggle Quick Menu
@@ -147,6 +156,13 @@ class DockReturnAccessibilityService : AccessibilityService() {
         val info = ExternalDisplayHelper.findExternalDisplay(this) ?: return null
         val dm = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
         return dm.getDisplay(info.displayId)
+    }
+
+    private fun resolveTargetDisplay(): Display? {
+        val ext = resolveExternalDisplay()
+        if (ext != null) return ext
+        val dm = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+        return dm.getDisplay(Display.DEFAULT_DISPLAY)
     }
 
     private fun returnToTvHub(externalDisplayId: Int) {

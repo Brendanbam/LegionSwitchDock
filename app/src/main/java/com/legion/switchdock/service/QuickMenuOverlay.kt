@@ -35,9 +35,63 @@ class QuickMenuOverlay(
     private var attachedWindowManager: WindowManager? = null
     private var volumeLabel: TextView? = null
     private var soundsButton: TextView? = null
+    private var menuButtons: List<TextView> = emptyList()
+    private var focusedIndex: Int = 3
 
     val isShowing: Boolean
         get() = rootView != null
+
+    fun handleKeyEvent(event: KeyEvent): Boolean {
+        if (!isShowing) return false
+        if (event.action != KeyEvent.ACTION_DOWN) {
+            return event.keyCode in setOf(
+                KeyEvent.KEYCODE_DPAD_UP,
+                KeyEvent.KEYCODE_DPAD_DOWN,
+                KeyEvent.KEYCODE_DPAD_LEFT,
+                KeyEvent.KEYCODE_DPAD_RIGHT,
+                KeyEvent.KEYCODE_DPAD_CENTER,
+                KeyEvent.KEYCODE_BUTTON_A,
+                KeyEvent.KEYCODE_ENTER,
+                KeyEvent.KEYCODE_BUTTON_B,
+                KeyEvent.KEYCODE_BACK,
+                KeyEvent.KEYCODE_ESCAPE
+            )
+        }
+        val buttons = menuButtons
+        if (buttons.isEmpty()) return false
+        return when (event.keyCode) {
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_LEFT -> {
+                setFocusedIndex((focusedIndex - 1 + buttons.size) % buttons.size)
+                true
+            }
+            KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                setFocusedIndex((focusedIndex + 1) % buttons.size)
+                true
+            }
+            KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                buttons.getOrNull(focusedIndex)?.performClick()
+                true
+            }
+            KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
+                SwitchAudioFeedback.playBack(serviceContext)
+                dismiss()
+                true
+            }
+            else -> false
+        }
+    }
+
+    private fun setFocusedIndex(index: Int) {
+        val buttons = menuButtons
+        if (buttons.isEmpty()) return
+        focusedIndex = index.coerceIn(0, buttons.lastIndex)
+        buttons.forEachIndexed { idx, btn ->
+            val active = idx == focusedIndex
+            btn.isSelected = active
+            if (active) btn.requestFocus()
+        }
+        SwitchAudioFeedback.playMove(serviceContext)
+    }
 
     fun toggle(display: Display, lastForegroundPackage: String?) {
         if (isShowing) {
@@ -217,6 +271,19 @@ class QuickMenuOverlay(
         )
         backdrop.addView(card, cardLp)
 
+        menuButtons = listOf(
+            volDownBtn,
+            volUpBtn,
+            muteBtn,
+            returnBtn,
+            forceCloseBtn,
+            audioOutBtn,
+            soundToggleBtn,
+            bypassBtn,
+            closeBtn
+        )
+        focusedIndex = 3 // Default to "Return to TV Hub"
+
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -229,7 +296,7 @@ class QuickMenuOverlay(
             wm.addView(backdrop, params)
             rootView = backdrop
             attachedWindowManager = wm
-            returnBtn.requestFocus()
+            backdrop.post { setFocusedIndex(3) }
             SwitchAudioFeedback.playMenu(serviceContext)
         }
     }
@@ -241,6 +308,7 @@ class QuickMenuOverlay(
         attachedWindowManager = null
         volumeLabel = null
         soundsButton = null
+        menuButtons = emptyList()
         runCatching { wm?.removeViewImmediate(view) }
     }
 
@@ -297,6 +365,7 @@ class QuickMenuOverlay(
             radiusPx = dp(ctx, 12).toFloat()
         )
         return StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_selected), focused)
             addState(intArrayOf(android.R.attr.state_focused), focused)
             addState(intArrayOf(android.R.attr.state_pressed), focused)
             addState(intArrayOf(), normal)

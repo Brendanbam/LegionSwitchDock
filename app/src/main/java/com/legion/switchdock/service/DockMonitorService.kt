@@ -90,12 +90,6 @@ class DockMonitorService : Service() {
     }
 
     private fun launchDockedExperience(externalDisplayId: Int) {
-        val tvIntent = Intent(this, TvHubActivity::class.java).apply {
-            putExtra(TvHubActivity.EXTRA_DISPLAY_ID, externalDisplayId)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        }
-        ExternalDisplayHelper.launchIntentOnDisplay(this, tvIntent, externalDisplayId)
-
         if (prefs.blackoutTabletOnDock) {
             val tabletIntent = Intent(this, MainActivity::class.java).apply {
                 putExtra(MainActivity.EXTRA_DOCKED_MODE, true)
@@ -103,6 +97,15 @@ class DockMonitorService : Service() {
             }
             ExternalDisplayHelper.launchIntentOnDisplay(this, tabletIntent, Display.DEFAULT_DISPLAY)
         }
+
+        // Launch TvHubActivity LAST (after a brief delay) so the TV display receives controller/D-pad priority focus
+        mainHandler.postDelayed({
+            val tvIntent = Intent(this, TvHubActivity::class.java).apply {
+                putExtra(TvHubActivity.EXTRA_DISPLAY_ID, externalDisplayId)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            }
+            ExternalDisplayHelper.launchIntentOnDisplay(this, tvIntent, externalDisplayId)
+        }, 250L)
 
         if (prefs.shizukuScreenOff) {
             ShizukuHelper.setInternalScreenBrightness(this, dimToZero = true)

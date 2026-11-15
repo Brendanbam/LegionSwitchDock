@@ -152,6 +152,15 @@ class TvHubActivity : ComponentActivity() {
         )
         applyPreferredDisplayMode()
         hideSystemBars()
+        window.decorView.requestFocus()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            hideSystemBars()
+            window.decorView.requestFocus()
+        }
     }
 
     private fun applyPreferredDisplayMode() {
@@ -247,6 +256,13 @@ private fun SwitchTvHubScreen(
         reloadApps()
         delay(120)
         runCatching { firstCardFocus.requestFocus() }
+    }
+
+    LaunchedEffect(showQuickMenu, showAllAppsDrawer) {
+        if (!showQuickMenu && !showAllAppsDrawer) {
+            delay(80)
+            runCatching { firstCardFocus.requestFocus() }
+        }
     }
 
     // Live status polling (clock, battery/thermals, controllers, network, display mode, idle timer)
