@@ -92,6 +92,7 @@ import com.legion.switchdock.data.AppRepository
 import com.legion.switchdock.data.DockHealthMonitor
 import com.legion.switchdock.data.DockHealthSnapshot
 import com.legion.switchdock.data.DockPreferences
+import com.legion.switchdock.data.HubTheme
 import com.legion.switchdock.display.ExternalDisplayHelper
 import com.legion.switchdock.media.SwitchAudioFeedback
 import com.legion.switchdock.service.DockMonitorService
@@ -435,6 +436,7 @@ private fun SwitchTvHubScreen(
     var showQuickMenu by remember { mutableStateOf(false) }
     var isIdleDimmed by remember { mutableStateOf(false) }
     var lastInteractionMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var activeTheme by remember { mutableStateOf(HubTheme.fromId(prefs.hubThemeId)) }
 
     // Deterministic controller selection states (never lost when display focus shifts!)
     var selectedTileIndex by remember { mutableIntStateOf(0) }
@@ -516,7 +518,7 @@ private fun SwitchTvHubScreen(
 
             when {
                 showQuickMenu -> {
-                    val menuCount = 10
+                    val menuCount = 11
                     when (cmd) {
                         ControllerCommand.UP, ControllerCommand.LEFT, ControllerCommand.L1_PREV -> {
                             selectedMenuIndex = (selectedMenuIndex - 1 + menuCount) % menuCount
@@ -556,8 +558,13 @@ private fun SwitchTvHubScreen(
                                         DockHealthMonitor.openBypassChargingSettings(context)
                                     }
                                 }
-                                8 -> triggerSleepMode()
-                                9 -> showQuickMenu = false
+                                8 -> {
+                                    val nextTheme = activeTheme.next()
+                                    activeTheme = nextTheme
+                                    prefs.hubThemeId = nextTheme.id
+                                }
+                                9 -> triggerSleepMode()
+                                10 -> showQuickMenu = false
                             }
                             menuStateTick++
                         }
@@ -708,6 +715,7 @@ private fun SwitchTvHubScreen(
 
             val ext = ExternalDisplayHelper.findExternalDisplay(context)
             displaySummary = ext?.summary ?: "Mirror / TV Mode"
+            activeTheme = HubTheme.fromId(prefs.hubThemeId)
 
             if (prefs.idleDimmerEnabled && !isIdleDimmed &&
                 System.currentTimeMillis() - lastInteractionMs >= idleTimeoutMs
@@ -724,7 +732,7 @@ private fun SwitchTvHubScreen(
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(Color(0xFF0E1117), Color(0xFF171B24), Color(0xFF0C0E13))
+                    colors = listOf(activeTheme.bgTop, activeTheme.bgMid, activeTheme.bgBottom)
                 )
             )
     ) {
@@ -745,9 +753,9 @@ private fun SwitchTvHubScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Surface(
-                        color = Color(0xFF00E5FF).copy(alpha = 0.16f),
+                        color = activeTheme.accent.copy(alpha = 0.16f),
                         shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.5f))
+                        border = BorderStroke(1.dp, activeTheme.accent.copy(alpha = 0.55f))
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
@@ -757,7 +765,7 @@ private fun SwitchTvHubScreen(
                             Icon(
                                 Icons.Rounded.Tv,
                                 contentDescription = null,
-                                tint = Color(0xFF00E5FF),
+                                tint = activeTheme.accent,
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
@@ -775,6 +783,34 @@ private fun SwitchTvHubScreen(
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
                     )
+
+                    val lowPad = health.controllers.firstOrNull { (it.batteryPercent ?: 100) <= 20 }
+                    if (lowPad != null) {
+                        Surface(
+                            color = Color(0xFFEF4444).copy(alpha = 0.20f),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, Color(0xFFEF4444))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Gamepad,
+                                    contentDescription = "Low Controller Battery",
+                                    tint = Color(0xFFF87171),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "Controller Low (${lowPad.batteryPercent}%)",
+                                    color = Color(0xFFFCA5A5),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
 
                     if (health.isThermalWarning && prefs.thermalWarningEnabled) {
                         Surface(
@@ -820,6 +856,12 @@ private fun SwitchTvHubScreen(
                                 append(" ${firstCtrl.batteryPercent}%")
                             }
                         }
+                        val padPct = firstCtrl.batteryPercent
+                        val padTint = when {
+                            padPct != null && padPct <= 20 -> Color(0xFFF87171)
+                            padPct != null && padPct <= 40 -> Color(0xFFFBBF24)
+                            else -> Color(0xFF4ADE80)
+                        }
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -827,10 +869,10 @@ private fun SwitchTvHubScreen(
                             Icon(
                                 Icons.Rounded.Gamepad,
                                 contentDescription = "Controller Connected",
-                                tint = Color(0xFF4ADE80),
+                                tint = padTint,
                                 modifier = Modifier.size(20.dp)
                             )
-                            Text(ctrlLabel, color = Color(0xFF4ADE80), fontSize = 13.sp)
+                            Text(ctrlLabel, color = padTint, fontSize = 13.sp)
                         }
                     }
 
@@ -994,9 +1036,15 @@ private fun SwitchTvHubScreen(
             InHubQuickMenuOverlay(
                 health = health,
                 prefs = prefs,
+                activeTheme = activeTheme,
                 selectedIndex = selectedMenuIndex,
                 stateTick = menuStateTick,
                 onSelectIndex = { selectedMenuIndex = it },
+                onCycleTheme = {
+                    val nextTheme = activeTheme.next()
+                    activeTheme = nextTheme
+                    prefs.hubThemeId = nextTheme.id
+                },
                 onTriggerScreensaver = {
                     showQuickMenu = false
                     isIdleDimmed = true
@@ -1172,9 +1220,11 @@ private fun ActionTile(
 private fun InHubQuickMenuOverlay(
     health: DockHealthSnapshot,
     prefs: DockPreferences,
+    activeTheme: HubTheme,
     selectedIndex: Int,
     stateTick: Int,
     onSelectIndex: (Int) -> Unit,
+    onCycleTheme: () -> Unit,
     onTriggerScreensaver: () -> Unit,
     onTriggerSleepMode: () -> Unit,
     onClose: () -> Unit
@@ -1335,20 +1385,29 @@ private fun InHubQuickMenuOverlay(
                     }
                 )
                 QuickMenuButton(
-                    label = "Sleep Mode (Tablet & TV)",
+                    label = "Theme: ${activeTheme.displayName} (Press A to Cycle)",
                     isSelected = (selectedIndex == 8),
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
                         onSelectIndex(8)
+                        onCycleTheme()
+                    }
+                )
+                QuickMenuButton(
+                    label = "Sleep Mode (Tablet & TV)",
+                    isSelected = (selectedIndex == 9),
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        onSelectIndex(9)
                         onTriggerSleepMode()
                     }
                 )
                 QuickMenuButton(
                     label = "Close Menu (B)",
-                    isSelected = (selectedIndex == 9),
+                    isSelected = (selectedIndex == 10),
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
-                        onSelectIndex(9)
+                        onSelectIndex(10)
                         onClose()
                     }
                 )

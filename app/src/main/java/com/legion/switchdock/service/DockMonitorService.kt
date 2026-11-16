@@ -12,9 +12,11 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.view.Display
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import com.legion.switchdock.MainActivity
 import com.legion.switchdock.TvHubActivity
+import com.legion.switchdock.data.DockHealthMonitor
 import com.legion.switchdock.data.DockPreferences
 import com.legion.switchdock.display.ExternalDisplayHelper
 import com.legion.switchdock.shizuku.ShizukuHelper
@@ -25,6 +27,27 @@ class DockMonitorService : Service() {
     private lateinit var prefs: DockPreferences
     private val mainHandler = Handler(Looper.getMainLooper())
     private var activeExternalDisplayId: Int? = null
+    private var lastLowControllerAlertMs: Long = 0L
+
+    private val controllerPollRunnable = object : Runnable {
+        override fun run() {
+            if (activeExternalDisplayId != null) {
+                val snap = DockHealthMonitor.readSnapshot(this@DockMonitorService)
+                val lowPad = snap.controllers.firstOrNull { (it.batteryPercent ?: 100) <= 15 }
+                val now = System.currentTimeMillis()
+                if (lowPad != null && now - lastLowControllerAlertMs >= 10 * 60 * 1000L) {
+                    lastLowControllerAlertMs = now
+                    Toast.makeText(
+                        this@DockMonitorService,
+                        "Controller battery low (${lowPad.batteryPercent}%): ${lowPad.name}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    updateNotification("Controller Low (${lowPad.batteryPercent}%) • Docked")
+                }
+            }
+            mainHandler.postDelayed(this, 30_000L)
+        }
+    }
 
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) {
@@ -55,6 +78,7 @@ class DockMonitorService : Service() {
         displayManager.registerDisplayListener(displayListener, mainHandler)
         ShizukuHelper.ensureBound(this)
         evaluateDisplays(autoLaunch = false)
+        mainHandler.postDelayed(controllerPollRunnable, 30_000L)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -67,6 +91,7 @@ class DockMonitorService : Service() {
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacks(controllerPollRunnable)
         displayManager.unregisterDisplayListener(displayListener)
         super.onDestroy()
     }

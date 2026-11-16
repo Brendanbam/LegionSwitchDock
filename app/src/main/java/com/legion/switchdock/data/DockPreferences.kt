@@ -47,6 +47,10 @@ class DockPreferences(context: Context) {
         get() = prefs.getBoolean(KEY_BYPASS_CHARGING_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_BYPASS_CHARGING_ENABLED, value).apply()
 
+    var hubThemeId: String
+        get() = prefs.getString(KEY_HUB_THEME_ID, HubTheme.SWITCH_DARK.id) ?: HubTheme.SWITCH_DARK.id
+        set(value) = prefs.edit().putString(KEY_HUB_THEME_ID, value).apply()
+
     var preferredDisplayModeId: Int
         get() = prefs.getInt(KEY_PREFERRED_DISPLAY_MODE_ID, 0)
         set(value) = prefs.edit().putInt(KEY_PREFERRED_DISPLAY_MODE_ID, value).apply()
@@ -101,6 +105,7 @@ class DockPreferences(context: Context) {
         private const val KEY_THERMAL_WARNING = "thermal_warning_enabled"
         private const val KEY_AUTO_BYPASS_CHARGING = "auto_bypass_charging_on_dock"
         private const val KEY_BYPASS_CHARGING_ENABLED = "bypass_charging_enabled"
+        private const val KEY_HUB_THEME_ID = "hub_theme_id"
         private const val KEY_PREFERRED_DISPLAY_MODE_ID = "preferred_display_mode_id"
         private const val KEY_PINS_INITIALIZED = "pins_initialized"
         private const val KEY_PINNED_PACKAGES = "pinned_packages"

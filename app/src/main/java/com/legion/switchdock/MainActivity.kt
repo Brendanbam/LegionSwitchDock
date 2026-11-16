@@ -73,6 +73,7 @@ import com.legion.switchdock.data.AppRepository
 import com.legion.switchdock.data.DockHealthMonitor
 import com.legion.switchdock.data.DockHealthSnapshot
 import com.legion.switchdock.data.DockPreferences
+import com.legion.switchdock.data.HubTheme
 import com.legion.switchdock.display.ExternalDisplayHelper
 import com.legion.switchdock.display.ExternalDisplayInfo
 import com.legion.switchdock.display.ExternalDisplayMode
@@ -220,6 +221,7 @@ private fun CompanionRoot(
     var thermalWarning by remember { mutableStateOf(prefs.thermalWarningEnabled) }
     var autoBypassCharging by remember { mutableStateOf(prefs.autoBypassChargingOnDock) }
     var bypassChargingEnabled by remember { mutableStateOf(prefs.bypassChargingEnabled) }
+    var selectedThemeId by remember { mutableStateOf(prefs.hubThemeId) }
     var shizukuScreenOff by remember { mutableStateOf(prefs.shizukuScreenOff) }
     var shizukuForceRelaunch by remember { mutableStateOf(prefs.shizukuForceRelaunch) }
 
@@ -328,6 +330,7 @@ private fun CompanionRoot(
             thermalWarning = thermalWarning,
             autoBypassCharging = autoBypassCharging,
             bypassChargingEnabled = bypassChargingEnabled,
+            selectedThemeId = selectedThemeId,
             shizukuScreenOff = shizukuScreenOff,
             shizukuForceRelaunch = shizukuForceRelaunch,
             onToggleService = { enabled ->
@@ -376,6 +379,10 @@ private fun CompanionRoot(
             },
             onOpenBypassCharging = {
                 DockHealthMonitor.openBypassChargingSettings(context)
+            },
+            onSelectTheme = { theme ->
+                selectedThemeId = theme.id
+                prefs.hubThemeId = theme.id
             },
             onPickBanner = { pkg ->
                 bannerTargetPackage = pkg
@@ -552,6 +559,7 @@ private fun SetupDashboardScreen(
     thermalWarning: Boolean,
     autoBypassCharging: Boolean,
     bypassChargingEnabled: Boolean,
+    selectedThemeId: String,
     shizukuScreenOff: Boolean,
     shizukuForceRelaunch: Boolean,
     onToggleService: (Boolean) -> Unit,
@@ -563,6 +571,7 @@ private fun SetupDashboardScreen(
     onToggleAutoBypassCharging: (Boolean) -> Unit,
     onToggleBypassChargingNow: () -> Unit,
     onOpenBypassCharging: () -> Unit,
+    onSelectTheme: (HubTheme) -> Unit,
     onPickBanner: (String) -> Unit,
     onClearBanner: (String) -> Unit,
     onToggleShizukuScreenOff: (Boolean) -> Unit,
@@ -749,6 +758,32 @@ private fun SetupDashboardScreen(
                 checked = idleDimmer,
                 onCheckedChange = onToggleIdleDimmer
             )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "TV Hub Theme",
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                HubTheme.entries.forEach { theme ->
+                    val isCurrent = theme.id == selectedThemeId
+                    OutlinedButton(
+                        onClick = { onSelectTheme(theme) },
+                        border = BorderStroke(
+                            if (isCurrent) 2.dp else 1.dp,
+                            if (isCurrent) theme.accent else Color(0xFF374151)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = if (isCurrent) "✓ ${theme.displayName} (Active)" else theme.displayName,
+                            color = if (isCurrent) theme.accent else Color.White,
+                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+                }
+            }
         }
 
         // Y700 Battery & Thermal Protection
