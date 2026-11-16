@@ -139,4 +139,12 @@ object ShizukuHelper {
         ).joinToString(" ; ")
         return runCommand(context, cmd)
     }
+
+    /**
+     * Puts the tablet display/system to sleep (KEYCODE_SLEEP = 223), which also stops HDMI output
+     * to the TV and lets paired Bluetooth controllers enter idle sleep.
+     */
+    fun sleepDevice(context: Context): Boolean {
+        return runCommand(context, "input keyevent 223")
+    }
 }

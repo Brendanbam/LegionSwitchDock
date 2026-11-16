@@ -43,7 +43,7 @@ class QuickMenuOverlay(
     private var focusedIndex: Int = 3
 
     private var shownAtMs: Long = 0L
-    private var lastStickStepMs: Long = 0L
+    private var lastNavStepMs: Long = 0L
     private var stickNeutral: Boolean = true
     private var lastHandledDownTime: Long = -1L
     private var lastHandledEventTime: Long = -1L
@@ -91,36 +91,49 @@ class QuickMenuOverlay(
         }
         val buttons = menuButtons
         if (buttons.isEmpty()) return false
+        val now = SystemClock.uptimeMillis()
         return when (event.keyCode) {
             KeyEvent.KEYCODE_DPAD_UP,
             KeyEvent.KEYCODE_DPAD_LEFT,
             KeyEvent.KEYCODE_BUTTON_L1 -> {
-                setFocusedIndex((focusedIndex - 1 + buttons.size) % buttons.size)
+                val minDelay = if (event.repeatCount > 0) 300L else 140L
+                if (now - lastNavStepMs >= minDelay) {
+                    lastNavStepMs = now
+                    setFocusedIndex((focusedIndex - 1 + buttons.size) % buttons.size)
+                }
                 true
             }
             KeyEvent.KEYCODE_DPAD_DOWN,
             KeyEvent.KEYCODE_DPAD_RIGHT,
             KeyEvent.KEYCODE_BUTTON_R1 -> {
-                setFocusedIndex((focusedIndex + 1) % buttons.size)
+                val minDelay = if (event.repeatCount > 0) 300L else 140L
+                if (now - lastNavStepMs >= minDelay) {
+                    lastNavStepMs = now
+                    setFocusedIndex((focusedIndex + 1) % buttons.size)
+                }
                 true
             }
             KeyEvent.KEYCODE_BUTTON_A,
             KeyEvent.KEYCODE_DPAD_CENTER,
             KeyEvent.KEYCODE_ENTER,
             KeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                buttons.getOrNull(focusedIndex)?.performClick()
+                if (event.repeatCount == 0) {
+                    buttons.getOrNull(focusedIndex)?.performClick()
+                }
                 true
             }
             KeyEvent.KEYCODE_BUTTON_B,
             KeyEvent.KEYCODE_BACK,
             KeyEvent.KEYCODE_ESCAPE -> {
-                SwitchAudioFeedback.playBack(serviceContext)
-                dismiss()
+                if (event.repeatCount == 0) {
+                    SwitchAudioFeedback.playBack(serviceContext)
+                    dismiss()
+                }
                 true
             }
             KeyEvent.KEYCODE_BUTTON_START,
             KeyEvent.KEYCODE_BUTTON_SELECT -> {
-                if (SystemClock.uptimeMillis() - shownAtMs >= 400L) {
+                if (event.repeatCount == 0 && now - shownAtMs >= 400L) {
                     SwitchAudioFeedback.playBack(serviceContext)
                     dismiss()
                 }
@@ -152,7 +165,7 @@ class QuickMenuOverlay(
 
         if (abs(x) < 0.25f && abs(y) < 0.25f) {
             stickNeutral = true
-        } else if (stickNeutral || now - lastStickStepMs >= 190L) {
+        } else if ((stickNeutral && now - lastNavStepMs >= 140L) || now - lastNavStepMs >= 300L) {
             val delta = when {
                 abs(x) >= abs(y) && x <= -threshold -> -1
                 abs(x) >= abs(y) && x >= threshold -> 1
@@ -162,7 +175,7 @@ class QuickMenuOverlay(
             }
             if (delta != 0) {
                 stickNeutral = false
-                lastStickStepMs = now
+                lastNavStepMs = now
                 setFocusedIndex((focusedIndex + delta + buttons.size) % buttons.size)
                 return true
             }
@@ -363,6 +376,20 @@ class QuickMenuOverlay(
         bypassButtonRef = bypassBtn
         addMenuRow(displayContext, card, bypassBtn)
 
+        val sleepBtn = createMenuButton(displayContext, "Sleep Mode (Tablet & TV)") {
+            dismiss()
+            if (ShizukuHelper.getStatus() == ShizukuStatus.READY) {
+                ShizukuHelper.sleepDevice(serviceContext)
+            } else {
+                Toast.makeText(
+                    serviceContext,
+                    "Connect Shizuku for instant Sleep Mode, or return to TV Hub",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+        addMenuRow(displayContext, card, sleepBtn)
+
         val closeBtn = createMenuButton(displayContext, "Close Menu (B)") {
             dismiss()
         }
@@ -384,6 +411,7 @@ class QuickMenuOverlay(
             audioOutBtn,
             soundToggleBtn,
             bypassBtn,
+            sleepBtn,
             closeBtn
         )
         focusedIndex = 3 // Default to "Return to TV Hub"

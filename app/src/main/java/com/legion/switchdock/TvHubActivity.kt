@@ -70,6 +70,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -115,7 +116,7 @@ class TvHubActivity : ComponentActivity() {
 
     private var targetDisplayId: Int = Display.DEFAULT_DISPLAY
     private val controllerCommands = MutableSharedFlow<ControllerCommand>(extraBufferCapacity = 16)
-    private var lastStickStepMs: Long = 0L
+    private var lastNavStepMs: Long = 0L
     private var stickNeutral: Boolean = true
     private var lastMenuToggleMs: Long = 0L
     private var lastHandledDownTime: Long = -1L
@@ -157,6 +158,13 @@ class TvHubActivity : ComponentActivity() {
                     targetDisplayId = targetDisplayId,
                     commands = controllerCommands,
                     onLaunchApp = { app -> launchAppOnTv(app) },
+                    onSetKeepScreenOn = { keepOn ->
+                        if (keepOn) {
+                            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        } else {
+                            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        }
+                    },
                     onExitHub = { finish() }
                 )
             }
@@ -231,10 +239,25 @@ class TvHubActivity : ComponentActivity() {
                 lastHandledEventTime = event.eventTime
                 lastHandledKeyCode = event.keyCode
                 lastHandledAction = event.action
-                if (cmd == ControllerCommand.START_MENU) {
-                    val now = SystemClock.uptimeMillis()
-                    if (now - lastMenuToggleMs < 350L) return true
-                    lastMenuToggleMs = now
+
+                val isDirectional = cmd == ControllerCommand.LEFT ||
+                    cmd == ControllerCommand.RIGHT ||
+                    cmd == ControllerCommand.UP ||
+                    cmd == ControllerCommand.DOWN
+                val now = SystemClock.uptimeMillis()
+
+                if (isDirectional) {
+                    // Unified cooldown prevents KeyEvent + MotionEvent (AXIS_HAT) double-firing
+                    // and slows held-key repeats to a comfortable 300ms step rate.
+                    val minDelay = if (event.repeatCount > 0) 300L else 140L
+                    if (now - lastNavStepMs < minDelay) return true
+                    lastNavStepMs = now
+                } else {
+                    if (event.repeatCount > 0) return true
+                    if (cmd == ControllerCommand.START_MENU) {
+                        if (now - lastMenuToggleMs < 350L) return true
+                        lastMenuToggleMs = now
+                    }
                 }
                 controllerCommands.tryEmit(cmd)
                 return true
@@ -292,7 +315,7 @@ class TvHubActivity : ComponentActivity() {
             val now = SystemClock.uptimeMillis()
             if (abs(x) < 0.25f && abs(y) < 0.25f) {
                 stickNeutral = true
-            } else if (stickNeutral || now - lastStickStepMs >= 190L) {
+            } else if ((stickNeutral && now - lastNavStepMs >= 140L) || now - lastNavStepMs >= 300L) {
                 val cmd = when {
                     abs(x) >= abs(y) && x <= -threshold -> ControllerCommand.LEFT
                     abs(x) >= abs(y) && x >= threshold -> ControllerCommand.RIGHT
@@ -302,7 +325,7 @@ class TvHubActivity : ComponentActivity() {
                 }
                 if (cmd != null) {
                     stickNeutral = false
-                    lastStickStepMs = now
+                    lastNavStepMs = now
                     controllerCommands.tryEmit(cmd)
                     return true
                 }
@@ -399,6 +422,7 @@ private fun SwitchTvHubScreen(
     targetDisplayId: Int,
     commands: MutableSharedFlow<ControllerCommand>,
     onLaunchApp: (AppEntry) -> Unit,
+    onSetKeepScreenOn: (Boolean) -> Unit,
     onExitHub: () -> Unit
 ) {
     val context = LocalContext.current
@@ -457,19 +481,42 @@ private fun SwitchTvHubScreen(
     }
     val focusedPackage = pinnedApps.getOrNull(safeTileIndex)?.packageName
 
-    // Handle all controller commands deterministically
+    val latestPinnedApps by rememberUpdatedState(pinnedApps)
+    val latestAllApps by rememberUpdatedState(allApps)
+
+    fun triggerSleepMode() {
+        showQuickMenu = false
+        isIdleDimmed = true
+        onSetKeepScreenOn(false)
+        if (ShizukuHelper.getStatus() == ShizukuStatus.READY) {
+            ShizukuHelper.sleepDevice(context)
+        }
+    }
+
+    LaunchedEffect(isIdleDimmed) {
+        onSetKeepScreenOn(!isIdleDimmed)
+    }
+
+    // Handle all controller commands deterministically using live state (never stale vals!)
     LaunchedEffect(Unit) {
         commands.collect { cmd ->
             lastInteractionMs = System.currentTimeMillis()
             if (isIdleDimmed) {
                 isIdleDimmed = false
+                onSetKeepScreenOn(true)
                 SwitchAudioFeedback.playMenu(context)
                 return@collect
             }
 
+            val currentPinned = latestPinnedApps
+            val currentAll = latestAllApps
+            val currentTotalTiles = currentPinned.size + 2
+            val currentSafeTileIdx = selectedTileIndex.coerceIn(0, (currentTotalTiles - 1).coerceAtLeast(0))
+            val currentFocusedPkg = currentPinned.getOrNull(currentSafeTileIdx)?.packageName
+
             when {
                 showQuickMenu -> {
-                    val menuCount = 9
+                    val menuCount = 10
                     when (cmd) {
                         ControllerCommand.UP, ControllerCommand.LEFT, ControllerCommand.L1_PREV -> {
                             selectedMenuIndex = (selectedMenuIndex - 1 + menuCount) % menuCount
@@ -509,7 +556,8 @@ private fun SwitchTvHubScreen(
                                         DockHealthMonitor.openBypassChargingSettings(context)
                                     }
                                 }
-                                8 -> showQuickMenu = false
+                                8 -> triggerSleepMode()
+                                9 -> showQuickMenu = false
                             }
                             menuStateTick++
                         }
@@ -518,7 +566,7 @@ private fun SwitchTvHubScreen(
                 }
 
                 showAllAppsDrawer -> {
-                    val count = allApps.size.coerceAtLeast(1)
+                    val count = currentAll.size.coerceAtLeast(1)
                     val cols = 5
                     when (cmd) {
                         ControllerCommand.LEFT -> {
@@ -538,13 +586,13 @@ private fun SwitchTvHubScreen(
                             SwitchAudioFeedback.playMove(context)
                         }
                         ControllerCommand.A_CONFIRM -> {
-                            allApps.getOrNull(selectedDrawerIndex)?.let { app ->
+                            currentAll.getOrNull(selectedDrawerIndex)?.let { app ->
                                 showAllAppsDrawer = false
                                 onLaunchApp(app)
                             }
                         }
                         ControllerCommand.X_ACTION -> {
-                            allApps.getOrNull(selectedDrawerIndex)?.let { app ->
+                            currentAll.getOrNull(selectedDrawerIndex)?.let { app ->
                                 SwitchAudioFeedback.playSelect(context)
                                 prefs.togglePinnedPackage(app.packageName)
                                 reloadApps()
@@ -565,20 +613,19 @@ private fun SwitchTvHubScreen(
                 }
 
                 else -> {
-                    val maxIdx = (pinnedApps.size + 1).coerceAtLeast(1)
                     when (cmd) {
                         ControllerCommand.LEFT, ControllerCommand.UP -> {
-                            selectedTileIndex = (safeTileIndex - 1 + (maxIdx + 1)) % (maxIdx + 1)
+                            selectedTileIndex = (currentSafeTileIdx - 1 + currentTotalTiles) % currentTotalTiles
                             SwitchAudioFeedback.playMove(context)
                         }
                         ControllerCommand.RIGHT, ControllerCommand.DOWN -> {
-                            selectedTileIndex = (safeTileIndex + 1) % (maxIdx + 1)
+                            selectedTileIndex = (currentSafeTileIdx + 1) % currentTotalTiles
                             SwitchAudioFeedback.playMove(context)
                         }
                         ControllerCommand.A_CONFIRM -> {
                             when {
-                                safeTileIndex < pinnedApps.size -> onLaunchApp(pinnedApps[safeTileIndex])
-                                safeTileIndex == pinnedApps.size -> {
+                                currentSafeTileIdx < currentPinned.size -> onLaunchApp(currentPinned[currentSafeTileIdx])
+                                currentSafeTileIdx == currentPinned.size -> {
                                     SwitchAudioFeedback.playMenu(context)
                                     selectedDrawerIndex = 0
                                     showAllAppsDrawer = true
@@ -601,22 +648,22 @@ private fun SwitchTvHubScreen(
                             showQuickMenu = true
                         }
                         ControllerCommand.X_ACTION -> {
-                            if (focusedPackage != null) {
-                                prefs.togglePinnedPackage(focusedPackage)
+                            if (currentFocusedPkg != null) {
+                                prefs.togglePinnedPackage(currentFocusedPkg)
                                 SwitchAudioFeedback.playSelect(context)
                                 reloadApps()
                             }
                         }
                         ControllerCommand.L1_PREV -> {
-                            if (focusedPackage != null && prefs.movePinnedPackage(focusedPackage, -1)) {
-                                selectedTileIndex = (safeTileIndex - 1).coerceAtLeast(0)
+                            if (currentFocusedPkg != null && prefs.movePinnedPackage(currentFocusedPkg, -1)) {
+                                selectedTileIndex = (currentSafeTileIdx - 1).coerceAtLeast(0)
                                 SwitchAudioFeedback.playMove(context)
                                 reloadApps()
                             }
                         }
                         ControllerCommand.R1_NEXT -> {
-                            if (focusedPackage != null && prefs.movePinnedPackage(focusedPackage, +1)) {
-                                selectedTileIndex = (safeTileIndex + 1).coerceAtMost((pinnedApps.size - 1).coerceAtLeast(0))
+                            if (currentFocusedPkg != null && prefs.movePinnedPackage(currentFocusedPkg, +1)) {
+                                selectedTileIndex = (currentSafeTileIdx + 1).coerceAtMost((currentPinned.size - 1).coerceAtLeast(0))
                                 SwitchAudioFeedback.playMove(context)
                                 reloadApps()
                             }
@@ -954,6 +1001,9 @@ private fun SwitchTvHubScreen(
                     showQuickMenu = false
                     isIdleDimmed = true
                 },
+                onTriggerSleepMode = {
+                    triggerSleepMode()
+                },
                 onClose = {
                     SwitchAudioFeedback.playBack(context)
                     showQuickMenu = false
@@ -1126,6 +1176,7 @@ private fun InHubQuickMenuOverlay(
     stateTick: Int,
     onSelectIndex: (Int) -> Unit,
     onTriggerScreensaver: () -> Unit,
+    onTriggerSleepMode: () -> Unit,
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
@@ -1284,11 +1335,20 @@ private fun InHubQuickMenuOverlay(
                     }
                 )
                 QuickMenuButton(
-                    label = "Close Menu (B)",
+                    label = "Sleep Mode (Tablet & TV)",
                     isSelected = (selectedIndex == 8),
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
                         onSelectIndex(8)
+                        onTriggerSleepMode()
+                    }
+                )
+                QuickMenuButton(
+                    label = "Close Menu (B)",
+                    isSelected = (selectedIndex == 9),
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        onSelectIndex(9)
                         onClose()
                     }
                 )
