@@ -55,6 +55,16 @@ enum class HubTheme(
         bgBottom = Color(0xFF050E0A),
         accent = Color(0xFF34D399),
         cardBg = Color(0xFF102A1F)
+    ),
+    // Pure black reads as see-through in XR glasses, so tiles appear to float in the room
+    GLASSES_FLOAT(
+        id = "glasses_float",
+        displayName = "XR Float (Glasses)",
+        bgTop = Color(0xFF000000),
+        bgMid = Color(0xFF000000),
+        bgBottom = Color(0xFF000000),
+        accent = Color(0xFF7DF9FF),
+        cardBg = Color(0xFF0B0F16)
     );
 
     fun next(): HubTheme {

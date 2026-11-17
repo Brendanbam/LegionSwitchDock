@@ -44,6 +44,11 @@ import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Tv
+import androidx.compose.material.icons.rounded.ViewInAr
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlin.math.abs
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -74,6 +79,7 @@ import com.legion.switchdock.data.DockHealthMonitor
 import com.legion.switchdock.data.DockHealthSnapshot
 import com.legion.switchdock.data.DockPreferences
 import com.legion.switchdock.data.HubTheme
+import com.legion.switchdock.display.DisplayProfile
 import com.legion.switchdock.display.ExternalDisplayHelper
 import com.legion.switchdock.display.ExternalDisplayInfo
 import com.legion.switchdock.display.ExternalDisplayMode
@@ -209,7 +215,8 @@ private fun CompanionRoot(
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
 
     var externalDisplay by remember { mutableStateOf<ExternalDisplayInfo?>(ExternalDisplayHelper.findExternalDisplay(context)) }
-    var preferredModeId by remember { mutableStateOf(prefs.preferredDisplayModeId) }
+    var modeTick by remember { mutableStateOf(0) }
+    var glassesEdgeMargin by remember { mutableStateOf(prefs.glassesEdgeMarginPct) }
     var hasOverlayPerm by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
     var hasAccessibilityPerm by remember { mutableStateOf(isAccessibilityEnabled(context)) }
     var shizukuStatus by remember { mutableStateOf(ShizukuHelper.getStatus()) }
@@ -223,7 +230,7 @@ private fun CompanionRoot(
     var autoBypassCharging by remember { mutableStateOf(prefs.autoBypassChargingOnDock) }
     var bypassChargingEnabled by remember { mutableStateOf(prefs.bypassChargingEnabled) }
     var artemisWifiBoost by remember { mutableStateOf(prefs.artemisWifiBoostEnabled) }
-    var selectedThemeId by remember { mutableStateOf(prefs.hubThemeId) }
+    var selectedThemeId by remember { mutableStateOf(prefs.getThemeId(prefs.activeProfile)) }
     var shizukuScreenOff by remember { mutableStateOf(prefs.shizukuScreenOff) }
     var shizukuForceRelaunch by remember { mutableStateOf(prefs.shizukuForceRelaunch) }
 
@@ -339,7 +346,20 @@ private fun CompanionRoot(
             autoBypassCharging = autoBypassCharging,
             bypassChargingEnabled = bypassChargingEnabled,
             artemisWifiBoost = artemisWifiBoost,
-            selectedThemeId = selectedThemeId,
+            selectedThemeId = externalDisplay?.profile?.let { prefs.getThemeId(it) } ?: selectedThemeId,
+            glassesEdgeMargin = glassesEdgeMargin,
+            onSetGlassesEdgeMargin = {
+                glassesEdgeMargin = it
+                prefs.glassesEdgeMarginPct = it
+            },
+            onSetDisplayType = { profile ->
+                val ext = externalDisplay
+                if (ext != null) {
+                    prefs.setDisplayTypeOverride(ext.name, profile)
+                    externalDisplay = ExternalDisplayHelper.findExternalDisplay(context)
+                    DockMonitorService.start(context) // re-evaluate so the right menu + mode load
+                }
+            },
             shizukuScreenOff = shizukuScreenOff,
             shizukuForceRelaunch = shizukuForceRelaunch,
             onToggleService = { enabled ->
@@ -400,7 +420,7 @@ private fun CompanionRoot(
             },
             onSelectTheme = { theme ->
                 selectedThemeId = theme.id
-                prefs.hubThemeId = theme.id
+                prefs.setThemeId(externalDisplay?.profile ?: DisplayProfile.TV, theme.id)
             },
             onPickBanner = { pkg ->
                 bannerTargetPackage = pkg
@@ -432,18 +452,21 @@ private fun CompanionRoot(
             onRequestShizuku = {
                 ShizukuHelper.requestPermission()
             },
-            preferredModeId = preferredModeId,
+            preferredModeKey = remember(externalDisplay, modeTick) {
+                externalDisplay?.let { ExternalDisplayHelper.resolvePreferredMode(context, it)?.key } ?: ""
+            },
             onSelectDisplayMode = { mode ->
-                preferredModeId = mode.modeId
-                prefs.preferredDisplayModeId = mode.modeId
                 val ext = externalDisplay
                 if (ext != null) {
+                    // Saved separately for TV and Glasses
+                    prefs.setPreferredModeKey(ext.profile, mode.key)
+                    modeTick++
                     ShizukuHelper.setExternalDisplayMode(
                         context,
                         ext.displayId,
                         mode.width,
                         mode.height,
-                        mode.refreshRateHz
+                        mode.refreshRateExact
                     )
                     val tvIntent = Intent(context, TvHubActivity::class.java).apply {
                         putExtra(TvHubActivity.EXTRA_DISPLAY_ID, ext.displayId)
@@ -472,31 +495,74 @@ private fun DockedBlackoutRemoteScreen(
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     var showControls by remember { mutableStateOf(false) }
     val displaySummaryText = displayInfo?.summary ?: "TV Docked"
+    val isGlasses = displayInfo?.isGlasses == true
+    val targetName = if (isGlasses) "XR GLASSES" else "TV"
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .clickable { showControls = !showControls },
+            .then(
+                if (isGlasses) {
+                    // Glasses touchpad: swipe to move between tiles, double-tap to launch
+                    Modifier.pointerInput(Unit) {
+                        var dx = 0f
+                        var dy = 0f
+                        detectDragGestures(
+                            onDragStart = { dx = 0f; dy = 0f },
+                            onDrag = { change, amount ->
+                                change.consume()
+                                dx += amount.x
+                                dy += amount.y
+                                val step = 90f
+                                val cmd = when {
+                                    abs(dx) >= abs(dy) && dx > step -> ControllerCommand.RIGHT
+                                    abs(dx) >= abs(dy) && dx < -step -> ControllerCommand.LEFT
+                                    abs(dy) > abs(dx) && dy > step -> ControllerCommand.DOWN
+                                    abs(dy) > abs(dx) && dy < -step -> ControllerCommand.UP
+                                    else -> null
+                                }
+                                if (cmd != null) {
+                                    TvHubActivity.sendRemoteCommand(cmd)
+                                    dx = 0f
+                                    dy = 0f
+                                }
+                            }
+                        )
+                    }.pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = { showControls = !showControls },
+                            onDoubleTap = { TvHubActivity.sendRemoteCommand(ControllerCommand.A_CONFIRM) },
+                            onLongPress = { TvHubActivity.sendRemoteCommand(ControllerCommand.B_BACK) }
+                        )
+                    }
+                } else {
+                    Modifier.clickable { showControls = !showControls }
+                }
+            ),
         contentAlignment = Alignment.Center
     ) {
         if (!showControls) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(
-                    Icons.Rounded.Tv,
+                    if (isGlasses) Icons.Rounded.ViewInAr else Icons.Rounded.Tv,
                     contentDescription = null,
                     tint = Color.White.copy(alpha = 0.16f),
                     modifier = Modifier.size(44.dp)
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "DOCKED TO TV • $displaySummaryText",
+                    text = "DOCKED TO $targetName • $displaySummaryText",
                     color = Color.White.copy(alpha = 0.18f),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium
                 )
                 Text(
-                    text = "Tap anywhere for Remote Controls",
+                    text = if (isGlasses) {
+                        "Touchpad: swipe to move • double-tap to launch • hold for back • tap for controls"
+                    } else {
+                        "Tap anywhere for Remote Controls"
+                    },
                     color = Color.White.copy(alpha = 0.12f),
                     fontSize = 11.sp
                 )
@@ -514,7 +580,7 @@ private fun DockedBlackoutRemoteScreen(
                     verticalArrangement = Arrangement.spacedBy(18.dp)
                 ) {
                     Text(
-                        text = "TV Remote • $displaySummaryText",
+                        text = (if (isGlasses) "Glasses Remote • " else "TV Remote • ") + displaySummaryText,
                         color = Color.White,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold
@@ -538,12 +604,26 @@ private fun DockedBlackoutRemoteScreen(
                         }
                     }
 
+                    if (isGlasses) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            OutlinedButton(onClick = { TvHubActivity.sendRemoteCommand(ControllerCommand.A_CONFIRM) }) {
+                                Text("A  Launch", color = Color.White)
+                            }
+                            OutlinedButton(onClick = { TvHubActivity.sendRemoteCommand(ControllerCommand.B_BACK) }) {
+                                Text("B  Back", color = Color.White)
+                            }
+                            OutlinedButton(onClick = { TvHubActivity.sendRemoteCommand(ControllerCommand.START_MENU) }) {
+                                Text("Menu", color = Color.White)
+                            }
+                        }
+                    }
+
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Button(
                             onClick = onFocusTvHub,
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
                         ) {
-                            Text("Show TV Hub", color = Color.Black, fontWeight = FontWeight.Bold)
+                            Text(if (isGlasses) "Show Glasses Hub" else "Show TV Hub", color = Color.Black, fontWeight = FontWeight.Bold)
                         }
                         OutlinedButton(onClick = onExitBlackout) {
                             Text("Tablet Settings", color = Color.White)
@@ -579,6 +659,9 @@ private fun SetupDashboardScreen(
     bypassChargingEnabled: Boolean,
     artemisWifiBoost: Boolean,
     selectedThemeId: String,
+    glassesEdgeMargin: Int,
+    onSetGlassesEdgeMargin: (Int) -> Unit,
+    onSetDisplayType: (DisplayProfile?) -> Unit,
     shizukuScreenOff: Boolean,
     shizukuForceRelaunch: Boolean,
     onToggleService: (Boolean) -> Unit,
@@ -599,7 +682,7 @@ private fun SetupDashboardScreen(
     onRequestOverlay: () -> Unit,
     onRequestAccessibility: () -> Unit,
     onRequestShizuku: () -> Unit,
-    preferredModeId: Int,
+    preferredModeKey: String,
     onSelectDisplayMode: (ExternalDisplayMode) -> Unit,
     onLaunchTvHub: (Int) -> Unit,
     onDimTablet: () -> Unit
@@ -667,24 +750,75 @@ private fun SetupDashboardScreen(
         SectionCard(title = "Display Status & HDMI Resolution / FPS Unlocker") {
             val statusColor = if (externalDisplay != null) Color(0xFF4ADE80) else Color(0xFF9BA3B4)
             val statusText = if (externalDisplay != null) {
-                "TV Connected: ${externalDisplay.name} (${externalDisplay.summary})"
+                val how = if (externalDisplay.profileAutoDetected) "auto-detected" else "set manually"
+                "${externalDisplay.profile.label} Connected ($how): ${externalDisplay.name} (${externalDisplay.summary})"
             } else {
                 "Undocked (or in Mirror Mode) — Tap 'Preview Hub' above for Full-Screen Mirror Mode!"
             }
             Text(text = statusText, color = statusColor, fontSize = 14.sp, fontWeight = FontWeight.Medium)
 
+            if (externalDisplay != null) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "Display Type (picks the TV menu or the Glasses menu):",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val options = listOf<Pair<String, DisplayProfile?>>(
+                        "Auto" to null,
+                        "TV" to DisplayProfile.TV,
+                        "XR Glasses" to DisplayProfile.GLASSES
+                    )
+                    options.forEach { (label, profile) ->
+                        val selected = if (profile == null) externalDisplay.profileAutoDetected
+                        else !externalDisplay.profileAutoDetected && externalDisplay.profile == profile
+                        OutlinedButton(
+                            onClick = { onSetDisplayType(profile) },
+                            border = BorderStroke(1.dp, if (selected) Color(0xFF00E5FF) else Color(0xFF374151))
+                        ) {
+                            Text(
+                                text = if (selected) "✓ $label" else label,
+                                color = if (selected) Color(0xFF00E5FF) else Color.White
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (externalDisplay?.isGlasses == true) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "Glasses Edge Margin: $glassesEdgeMargin% (keeps the menu out of the blurry edges)",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(0, 5, 8, 12, 16).forEach { pct ->
+                        val selected = pct == glassesEdgeMargin
+                        OutlinedButton(
+                            onClick = { onSetGlassesEdgeMargin(pct) },
+                            border = BorderStroke(1.dp, if (selected) Color(0xFF00E5FF) else Color(0xFF374151))
+                        ) {
+                            Text("$pct%", color = if (selected) Color(0xFF00E5FF) else Color.White)
+                        }
+                    }
+                }
+            }
+
             if (externalDisplay != null && externalDisplay.supportedModes.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "Hardware EDID Modes Detected (Tap to Lock Resolution & FPS):",
+                    text = "${externalDisplay.profile.label} Modes (Tap to Lock Resolution & FPS — saved separately for TV and Glasses):",
                     color = Color.White,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold
                 )
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     externalDisplay.supportedModes.take(8).forEach { mode ->
-                        val isActive = (preferredModeId == mode.modeId) ||
-                            (preferredModeId == 0 && externalDisplay.activeModeId == mode.modeId)
+                        val isActive = preferredModeKey == mode.key
                         OutlinedButton(
                             onClick = { onSelectDisplayMode(mode) },
                             border = BorderStroke(

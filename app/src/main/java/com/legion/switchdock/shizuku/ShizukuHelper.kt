@@ -116,9 +116,11 @@ object ShizukuHelper {
         displayId: Int,
         width: Int,
         height: Int,
-        refreshRateHz: Int
+        refreshRate: Float
     ): Boolean {
-        val cmd = "cmd display set-user-preferred-display-mode $width $height ${refreshRateHz}.0 $displayId"
+        // Exact EDID rate (e.g. 119.88) so the system matches the mode instead of ignoring it
+        val rate = String.format(java.util.Locale.US, "%.3f", refreshRate)
+        val cmd = "cmd display set-user-preferred-display-mode $width $height $rate $displayId"
         return runCommand(context, cmd)
     }
 

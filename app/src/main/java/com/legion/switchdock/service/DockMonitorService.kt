@@ -18,7 +18,9 @@ import com.legion.switchdock.MainActivity
 import com.legion.switchdock.TvHubActivity
 import com.legion.switchdock.data.DockHealthMonitor
 import com.legion.switchdock.data.DockPreferences
+import com.legion.switchdock.display.DisplayProfile
 import com.legion.switchdock.display.ExternalDisplayHelper
+import com.legion.switchdock.shizuku.ShizukuStatus
 import com.legion.switchdock.shizuku.ShizukuHelper
 import com.legion.switchdock.streaming.ArtemisBoostManager
 
@@ -29,6 +31,8 @@ class DockMonitorService : Service() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var activeExternalDisplayId: Int? = null
     private var lastLowControllerAlertMs: Long = 0L
+    private var lastGlassesBatteryAlertPct: Int = 101
+    private var activeProfile: DisplayProfile? = null
 
     private val controllerPollRunnable = object : Runnable {
         override fun run() {
@@ -44,6 +48,21 @@ class DockMonitorService : Service() {
                         Toast.LENGTH_LONG
                     ).show()
                     updateNotification("Controller Low (${lowPad.batteryPercent}%) • Docked")
+                }
+                // Glasses draw power from the tablet: warn at 20% and 10%
+                if (activeProfile == DisplayProfile.GLASSES && prefs.glassesBatteryWarning && !snap.isCharging) {
+                    val pct = snap.batteryPercent
+                    val threshold = if (pct <= 10) 10 else if (pct <= 20) 20 else 101
+                    if (threshold < lastGlassesBatteryAlertPct) {
+                        lastGlassesBatteryAlertPct = threshold
+                        Toast.makeText(
+                            this@DockMonitorService,
+                            "Tablet battery $pct% — your XR glasses run on tablet power",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                } else if (snap.isCharging) {
+                    lastGlassesBatteryAlertPct = 101
                 }
             }
             mainHandler.postDelayed(this, 30_000L)
@@ -75,7 +94,7 @@ class DockMonitorService : Service() {
         prefs = DockPreferences(this)
         displayManager = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification("Watching for TV / USB-C display"))
+        startForeground(NOTIFICATION_ID, buildNotification("Watching for TV / XR glasses"))
         displayManager.registerDisplayListener(displayListener, mainHandler)
         ShizukuHelper.ensureBound(this)
         evaluateDisplays(autoLaunch = false)
@@ -103,21 +122,47 @@ class DockMonitorService : Service() {
     private fun evaluateDisplays(autoLaunch: Boolean) {
         val external = ExternalDisplayHelper.findExternalDisplay(this)
         if (external != null) {
-            val isNewConnection = activeExternalDisplayId != external.displayId
+            val isNewConnection = activeExternalDisplayId != external.displayId ||
+                activeProfile != external.profile
             activeExternalDisplayId = external.displayId
+            activeProfile = external.profile
+            if (isNewConnection) {
+                lastGlassesBatteryAlertPct = 101
+                applyProfileDisplayMode(external)
+            }
             if (prefs.artemisWifiBoostEnabled && !ArtemisBoostManager.isLowLatencyLockHeld) {
                 ArtemisBoostManager.setBoostActive(this, true)
             }
             val boostTag = if (ArtemisBoostManager.isLowLatencyLockHeld) " • Low-Latency Wi-Fi" else ""
-            updateNotification("Docked to TV (${external.summary})$boostTag")
+            updateNotification("Docked to ${external.profile.label} (${external.summary})$boostTag")
             if ((isNewConnection || autoLaunch) && prefs.autoLaunchOnDock) {
                 launchDockedExperience(external.displayId)
             }
         } else if (activeExternalDisplayId != null) {
             handleUndocked()
         } else {
-            updateNotification("Ready • Plug USB-C to dock to TV")
+            updateNotification("Ready • Plug in your TV dock or XR glasses")
         }
+    }
+
+    /**
+     * Switches the external screen to this profile's resolution + refresh rate
+     * (e.g. 4K@60 for the TV, 1080p@120 for the glasses). With Shizuku this is system-wide so
+     * it sticks inside games/streaming apps too; without it the hub requests it for its own window.
+     */
+    private fun applyProfileDisplayMode(external: com.legion.switchdock.display.ExternalDisplayInfo) {
+        val target = ExternalDisplayHelper.resolvePreferredMode(this, external) ?: return
+        val alreadyActive = target.modeId == external.activeModeId
+        if (!alreadyActive && ShizukuHelper.getStatus() == ShizukuStatus.READY) {
+            ShizukuHelper.setExternalDisplayMode(
+                this, external.displayId, target.width, target.height, target.refreshRateExact
+            )
+        }
+        Toast.makeText(
+            this,
+            "${external.profile.label} detected • ${target.label}",
+            Toast.LENGTH_SHORT
+        ).show()
     }
 
     private fun launchDockedExperience(externalDisplayId: Int) {
@@ -153,7 +198,8 @@ class DockMonitorService : Service() {
 
     private fun handleUndocked() {
         activeExternalDisplayId = null
-        updateNotification("Ready • Plug USB-C to dock to TV")
+        activeProfile = null
+        updateNotification("Ready • Plug in your TV dock or XR glasses")
         ArtemisBoostManager.setBoostActive(this, false)
 
         if (prefs.shizukuScreenOff) {

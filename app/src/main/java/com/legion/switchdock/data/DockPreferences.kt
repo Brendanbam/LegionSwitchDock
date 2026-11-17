@@ -2,8 +2,10 @@ package com.legion.switchdock.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.legion.switchdock.display.DisplayProfile
+import com.legion.switchdock.display.ExternalDisplayHelper
 
-class DockPreferences(context: Context) {
+class DockPreferences(private val context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("legion_switch_dock_prefs", Context.MODE_PRIVATE)
 
@@ -59,22 +61,76 @@ class DockPreferences(context: Context) {
         get() = prefs.getInt(KEY_PREFERRED_DISPLAY_MODE_ID, 0)
         set(value) = prefs.edit().putInt(KEY_PREFERRED_DISPLAY_MODE_ID, value).apply()
 
-    var hasInitializedPins: Boolean
-        get() = prefs.getBoolean(KEY_PINS_INITIALIZED, false)
-        set(value) = prefs.edit().putBoolean(KEY_PINS_INITIALIZED, value).apply()
+    // ---- Per-profile (TV vs XR Glasses) settings ----
 
-    fun getPinnedPackages(): List<String> {
-        val raw = prefs.getString(KEY_PINNED_PACKAGES, "") ?: ""
+    /** Profile of whatever is plugged in right now (TV when nothing is connected). */
+    val activeProfile: DisplayProfile
+        get() = ExternalDisplayHelper.currentProfile(context)
+
+    private fun profileKey(base: String, profile: DisplayProfile): String =
+        if (profile == DisplayProfile.TV) base else "${base}_${profile.id}"
+
+    fun getPreferredModeKey(profile: DisplayProfile): String =
+        prefs.getString(profileKey(KEY_PREFERRED_MODE_KEY, profile), "") ?: ""
+
+    fun setPreferredModeKey(profile: DisplayProfile, key: String) {
+        prefs.edit().putString(profileKey(KEY_PREFERRED_MODE_KEY, profile), key).apply()
+    }
+
+    fun getThemeId(profile: DisplayProfile): String =
+        if (profile == DisplayProfile.GLASSES) {
+            prefs.getString(KEY_GLASSES_THEME_ID, HubTheme.GLASSES_FLOAT.id) ?: HubTheme.GLASSES_FLOAT.id
+        } else {
+            hubThemeId
+        }
+
+    fun setThemeId(profile: DisplayProfile, id: String) {
+        if (profile == DisplayProfile.GLASSES) {
+            prefs.edit().putString(KEY_GLASSES_THEME_ID, id).apply()
+        } else {
+            hubThemeId = id
+        }
+    }
+
+    /** Manual "this display is a TV / Glasses" choice, remembered per display name. Null = auto-detect. */
+    fun getDisplayTypeOverride(displayName: String): String? =
+        prefs.getString(KEY_DISPLAY_TYPE_PREFIX + displayName, null)
+
+    fun setDisplayTypeOverride(displayName: String, profile: DisplayProfile?) {
+        val key = KEY_DISPLAY_TYPE_PREFIX + displayName
+        if (profile == null) prefs.edit().remove(key).apply()
+        else prefs.edit().putString(key, profile.id).apply()
+    }
+
+    /** Percent of the glasses view kept empty around the edges (edges are the blurriest part of the optics). */
+    var glassesEdgeMarginPct: Int
+        get() = prefs.getInt(KEY_GLASSES_EDGE_MARGIN, 8)
+        set(value) = prefs.edit().putInt(KEY_GLASSES_EDGE_MARGIN, value.coerceIn(0, 20)).apply()
+
+    var glassesBatteryWarning: Boolean
+        get() = prefs.getBoolean(KEY_GLASSES_BATTERY_WARNING, true)
+        set(value) = prefs.edit().putBoolean(KEY_GLASSES_BATTERY_WARNING, value).apply()
+
+    fun hasInitializedPins(profile: DisplayProfile = activeProfile): Boolean =
+        prefs.getBoolean(profileKey(KEY_PINS_INITIALIZED, profile), false)
+
+    fun setInitializedPins(profile: DisplayProfile = activeProfile, value: Boolean) {
+        prefs.edit().putBoolean(profileKey(KEY_PINS_INITIALIZED, profile), value).apply()
+    }
+
+    fun getPinnedPackages(profile: DisplayProfile = activeProfile): List<String> {
+        val raw = prefs.getString(profileKey(KEY_PINNED_PACKAGES, profile), "") ?: ""
         if (raw.isBlank()) return emptyList()
         return raw.split("|").filter { it.isNotBlank() }
     }
 
-    fun setPinnedPackages(packages: List<String>) {
-        prefs.edit().putString(KEY_PINNED_PACKAGES, packages.joinToString("|")).apply()
+    fun setPinnedPackages(packages: List<String>, profile: DisplayProfile = activeProfile) {
+        prefs.edit().putString(profileKey(KEY_PINNED_PACKAGES, profile), packages.joinToString("|")).apply()
     }
 
     fun togglePinnedPackage(packageName: String): Boolean {
-        val current = getPinnedPackages().toMutableList()
+        val profile = activeProfile
+        val current = getPinnedPackages(profile).toMutableList()
         val nowPinned = if (current.contains(packageName)) {
             current.remove(packageName)
             false
@@ -82,19 +138,20 @@ class DockPreferences(context: Context) {
             current.add(packageName)
             true
         }
-        setPinnedPackages(current)
+        setPinnedPackages(current, profile)
         return nowPinned
     }
 
     fun movePinnedPackage(packageName: String, delta: Int): Boolean {
-        val current = getPinnedPackages().toMutableList()
+        val profile = activeProfile
+        val current = getPinnedPackages(profile).toMutableList()
         val index = current.indexOf(packageName)
         if (index == -1) return false
         val targetIndex = (index + delta).coerceIn(0, current.lastIndex)
         if (targetIndex == index) return false
         val item = current.removeAt(index)
         current.add(targetIndex, item)
-        setPinnedPackages(current)
+        setPinnedPackages(current, profile)
         return true
     }
 
@@ -114,5 +171,10 @@ class DockPreferences(context: Context) {
         private const val KEY_PREFERRED_DISPLAY_MODE_ID = "preferred_display_mode_id"
         private const val KEY_PINS_INITIALIZED = "pins_initialized"
         private const val KEY_PINNED_PACKAGES = "pinned_packages"
+        private const val KEY_PREFERRED_MODE_KEY = "preferred_display_mode_key"
+        private const val KEY_GLASSES_THEME_ID = "glasses_theme_id"
+        private const val KEY_DISPLAY_TYPE_PREFIX = "display_type_override::"
+        private const val KEY_GLASSES_EDGE_MARGIN = "glasses_edge_margin_pct"
+        private const val KEY_GLASSES_BATTERY_WARNING = "glasses_battery_warning"
     }
 }
