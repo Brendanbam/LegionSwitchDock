@@ -377,6 +377,12 @@ class TvHubActivity : ComponentActivity() {
         val prefs = DockPreferences(this)
         val externalId = ExternalDisplayHelper.findExternalDisplay(this)?.displayId ?: targetDisplayId
 
+        if (app.packageName == AppRepository.PLAY_PC_ID) {
+            ArtemisBoostManager.onAppLaunched(this, AppRepository.ARTEMIS_LEGION_PACKAGE)
+            ExternalDisplayHelper.launchIntentOnDisplay(this, AppRepository.playPcIntent(), externalId)
+            return
+        }
+
         // Apply low-latency Wi-Fi lock & Shizuku streaming boost before launching
         ArtemisBoostManager.onAppLaunched(this, app.packageName)
 
@@ -485,7 +491,9 @@ private fun SwitchTvHubScreen(
     fun reloadApps() {
         val loaded = AppRepository.loadLaunchableApps(context)
         allApps = loaded
-        pinnedApps = AppRepository.getOrSeedPinnedApps(context, loaded, prefs)
+        // "Play PC" leads the row whenever Artemis Legion is installed
+        pinnedApps = listOfNotNull(AppRepository.playPcTile(context)) +
+            AppRepository.getOrSeedPinnedApps(context, loaded, prefs)
     }
 
     LaunchedEffect(Unit) {
@@ -673,21 +681,23 @@ private fun SwitchTvHubScreen(
                             showQuickMenu = true
                         }
                         ControllerCommand.X_ACTION -> {
-                            if (currentFocusedPkg != null) {
+                            if (currentFocusedPkg != null && !AppRepository.isVirtualTile(currentFocusedPkg)) {
                                 prefs.togglePinnedPackage(currentFocusedPkg)
                                 SwitchAudioFeedback.playSelect(context)
                                 reloadApps()
                             }
                         }
                         ControllerCommand.L1_PREV -> {
-                            if (currentFocusedPkg != null && prefs.movePinnedPackage(currentFocusedPkg, -1)) {
+                            if (currentFocusedPkg != null && !AppRepository.isVirtualTile(currentFocusedPkg) &&
+                                prefs.movePinnedPackage(currentFocusedPkg, -1)) {
                                 selectedTileIndex = (currentSafeTileIdx - 1).coerceAtLeast(0)
                                 SwitchAudioFeedback.playMove(context)
                                 reloadApps()
                             }
                         }
                         ControllerCommand.R1_NEXT -> {
-                            if (currentFocusedPkg != null && prefs.movePinnedPackage(currentFocusedPkg, +1)) {
+                            if (currentFocusedPkg != null && !AppRepository.isVirtualTile(currentFocusedPkg) &&
+                                prefs.movePinnedPackage(currentFocusedPkg, +1)) {
                                 selectedTileIndex = (currentSafeTileIdx + 1).coerceAtMost((currentPinned.size - 1).coerceAtLeast(0))
                                 SwitchAudioFeedback.playMove(context)
                                 reloadApps()

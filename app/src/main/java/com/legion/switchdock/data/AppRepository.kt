@@ -25,6 +25,29 @@ data class AppEntry(
 )
 
 object AppRepository {
+    const val ARTEMIS_LEGION_PACKAGE = "com.limelight.legion"
+    const val PLAY_PC_ID = "legion:play_pc"
+    private const val PLAY_PC_ACTIVITY = "com.limelight.legion.LegionPlayActivity"
+
+    fun isVirtualTile(packageName: String?): Boolean = packageName?.startsWith("legion:") == true
+
+    /** One-tap "Play PC" tile: resumes the last Artemis Legion stream on whatever screen the hub is on. */
+    fun playPcTile(context: Context): AppEntry? {
+        val pm = context.packageManager
+        val icon = runCatching { pm.getApplicationIcon(ARTEMIS_LEGION_PACKAGE) }.getOrNull() ?: return null
+        return AppEntry(
+            packageName = PLAY_PC_ID,
+            label = "Play PC",
+            icon = drawableToImageBitmap(icon),
+            isSystemApp = false,
+            banner = loadCustomBanner(context, PLAY_PC_ID)
+        )
+    }
+
+    fun playPcIntent(): Intent = Intent().apply {
+        setClassName(ARTEMIS_LEGION_PACKAGE, PLAY_PC_ACTIVITY)
+    }
+
     // Priority keywords/packages for smart first-run pinning on the Switch-style TV row
     private val preferredPackages = listOf(
         "com.limelight.legion",        // Artemis Legion (auto TV/glasses settings)
