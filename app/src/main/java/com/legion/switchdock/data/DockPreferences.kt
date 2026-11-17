@@ -24,8 +24,12 @@ class DockPreferences(context: Context) {
         set(value) = prefs.edit().putBoolean(KEY_SHIZUKU_SCREEN_OFF, value).apply()
 
     var shizukuForceRelaunch: Boolean
-        get() = prefs.getBoolean(KEY_SHIZUKU_FORCE_RELAUNCH, true)
+        get() = prefs.getBoolean(KEY_SHIZUKU_FORCE_RELAUNCH, false)
         set(value) = prefs.edit().putBoolean(KEY_SHIZUKU_FORCE_RELAUNCH, value).apply()
+
+    var artemisWifiBoostEnabled: Boolean
+        get() = prefs.getBoolean(KEY_ARTEMIS_WIFI_BOOST, true)
+        set(value) = prefs.edit().putBoolean(KEY_ARTEMIS_WIFI_BOOST, value).apply()
 
     var uiSoundsEnabled: Boolean
         get() = prefs.getBoolean(KEY_UI_SOUNDS, true)
@@ -100,6 +104,7 @@ class DockPreferences(context: Context) {
         private const val KEY_BLACKOUT_TABLET = "blackout_tablet_on_dock"
         private const val KEY_SHIZUKU_SCREEN_OFF = "shizuku_screen_off"
         private const val KEY_SHIZUKU_FORCE_RELAUNCH = "shizuku_force_relaunch"
+        private const val KEY_ARTEMIS_WIFI_BOOST = "artemis_wifi_boost_enabled"
         private const val KEY_UI_SOUNDS = "ui_sounds_enabled"
         private const val KEY_IDLE_DIMMER = "idle_dimmer_enabled"
         private const val KEY_THERMAL_WARNING = "thermal_warning_enabled"

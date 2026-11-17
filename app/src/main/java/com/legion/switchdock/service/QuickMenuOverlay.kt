@@ -28,6 +28,7 @@ import com.legion.switchdock.display.ExternalDisplayHelper
 import com.legion.switchdock.media.SwitchAudioFeedback
 import com.legion.switchdock.shizuku.ShizukuHelper
 import com.legion.switchdock.shizuku.ShizukuStatus
+import com.legion.switchdock.streaming.ArtemisBoostManager
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -376,6 +377,19 @@ class QuickMenuOverlay(
         bypassButtonRef = bypassBtn
         addMenuRow(displayContext, card, bypassBtn)
 
+        var wifiBoostButtonRef: TextView? = null
+        val wifiBoostBtn = createMenuButton(
+            displayContext,
+            "Artemis Wi-Fi Boost: ${if (prefs.artemisWifiBoostEnabled) "ON (Low-Latency)" else "OFF"}"
+        ) {
+            val next = !prefs.artemisWifiBoostEnabled
+            prefs.artemisWifiBoostEnabled = next
+            ArtemisBoostManager.setBoostActive(serviceContext, next)
+            wifiBoostButtonRef?.text = "Artemis Wi-Fi Boost: ${if (next) "ON (Low-Latency)" else "OFF"}"
+        }
+        wifiBoostButtonRef = wifiBoostBtn
+        addMenuRow(displayContext, card, wifiBoostBtn)
+
         val sleepBtn = createMenuButton(displayContext, "Sleep Mode (Tablet & TV)") {
             dismiss()
             if (ShizukuHelper.getStatus() == ShizukuStatus.READY) {
@@ -411,6 +425,7 @@ class QuickMenuOverlay(
             audioOutBtn,
             soundToggleBtn,
             bypassBtn,
+            wifiBoostBtn,
             sleepBtn,
             closeBtn
         )

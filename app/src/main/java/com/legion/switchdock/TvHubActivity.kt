@@ -99,6 +99,7 @@ import com.legion.switchdock.service.DockMonitorService
 import com.legion.switchdock.service.DockReturnAccessibilityService
 import com.legion.switchdock.shizuku.ShizukuHelper
 import com.legion.switchdock.shizuku.ShizukuStatus
+import com.legion.switchdock.streaming.ArtemisBoostManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import java.text.SimpleDateFormat
@@ -377,7 +378,15 @@ class TvHubActivity : ComponentActivity() {
         val prefs = DockPreferences(this)
         val externalId = ExternalDisplayHelper.findExternalDisplay(this)?.displayId ?: targetDisplayId
 
-        if (prefs.shizukuForceRelaunch && externalId != Display.DEFAULT_DISPLAY) {
+        // Apply low-latency Wi-Fi lock & Shizuku streaming boost before launching
+        ArtemisBoostManager.onAppLaunched(this, app.packageName)
+
+        // Never force-stop streaming apps (e.g. Artemis / Moonlight / Steam Link) when launching
+        // from the TV Hub so an active game stream is resumed cleanly instead of killed!
+        if (prefs.shizukuForceRelaunch &&
+            externalId != Display.DEFAULT_DISPLAY &&
+            !ArtemisBoostManager.isStreamingPackage(app.packageName)
+        ) {
             ShizukuHelper.forceStopPackage(this, app.packageName)
         }
         ExternalDisplayHelper.launchPackageOnDisplay(this, app.packageName, externalId)
@@ -693,12 +702,22 @@ private fun SwitchTvHubScreen(
     }
 
     // Live status polling (clock, battery/thermals, controllers, network, display mode, idle timer)
+    // Automatically pauses when TvHubActivity is in the background (e.g. during Artemis streaming)
+    // so zero CPU/binder overhead occurs while gaming!
     LaunchedEffect(Unit) {
         val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
         val dateFormat = SimpleDateFormat("EEE, MMM d", Locale.getDefault())
         val idleTimeoutMs = 5 * 60 * 1000L
 
+        if (prefs.artemisWifiBoostEnabled) {
+            ArtemisBoostManager.setBoostActive(context, true)
+        }
+
         while (true) {
+            if (!TvHubActivity.isInstanceResumed) {
+                delay(2500)
+                continue
+            }
             val nowDate = Date()
             currentTime = timeFormat.format(nowDate)
             currentDate = dateFormat.format(nowDate)
@@ -707,10 +726,15 @@ private fun SwitchTvHubScreen(
 
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
             val caps = cm.getNetworkCapabilities(cm.activeNetwork)
-            networkType = when {
+            val baseNet = when {
                 caps?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true -> "Ethernet"
                 caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true -> "Wi-Fi"
                 else -> "Offline"
+            }
+            networkType = if (baseNet == "Wi-Fi" && ArtemisBoostManager.isLowLatencyLockHeld) {
+                "Wi-Fi • Low-Latency"
+            } else {
+                baseNet
             }
 
             val ext = ExternalDisplayHelper.findExternalDisplay(context)

@@ -81,6 +81,7 @@ import com.legion.switchdock.service.DockMonitorService
 import com.legion.switchdock.service.QuickMenuOverlay
 import com.legion.switchdock.shizuku.ShizukuHelper
 import com.legion.switchdock.shizuku.ShizukuStatus
+import com.legion.switchdock.streaming.ArtemisBoostManager
 import kotlinx.coroutines.delay
 import rikka.shizuku.Shizuku
 import java.util.Locale
@@ -221,6 +222,7 @@ private fun CompanionRoot(
     var thermalWarning by remember { mutableStateOf(prefs.thermalWarningEnabled) }
     var autoBypassCharging by remember { mutableStateOf(prefs.autoBypassChargingOnDock) }
     var bypassChargingEnabled by remember { mutableStateOf(prefs.bypassChargingEnabled) }
+    var artemisWifiBoost by remember { mutableStateOf(prefs.artemisWifiBoostEnabled) }
     var selectedThemeId by remember { mutableStateOf(prefs.hubThemeId) }
     var shizukuScreenOff by remember { mutableStateOf(prefs.shizukuScreenOff) }
     var shizukuForceRelaunch by remember { mutableStateOf(prefs.shizukuForceRelaunch) }
@@ -259,6 +261,12 @@ private fun CompanionRoot(
             }
         }
         while (true) {
+            // When the tablet screen is in Docked Blackout mode during gaming, skip heavy system
+            // polling so zero CPU/binder overhead competes with Artemis game streaming!
+            if (forceDockedBlackout) {
+                delay(3000)
+                continue
+            }
             externalDisplay = ExternalDisplayHelper.findExternalDisplay(context)
             hasOverlayPerm = Settings.canDrawOverlays(context)
             hasAccessibilityPerm = isAccessibilityEnabled(context)
@@ -330,6 +338,7 @@ private fun CompanionRoot(
             thermalWarning = thermalWarning,
             autoBypassCharging = autoBypassCharging,
             bypassChargingEnabled = bypassChargingEnabled,
+            artemisWifiBoost = artemisWifiBoost,
             selectedThemeId = selectedThemeId,
             shizukuScreenOff = shizukuScreenOff,
             shizukuForceRelaunch = shizukuForceRelaunch,
@@ -379,6 +388,15 @@ private fun CompanionRoot(
             },
             onOpenBypassCharging = {
                 DockHealthMonitor.openBypassChargingSettings(context)
+            },
+            onToggleArtemisWifiBoost = { enabled ->
+                artemisWifiBoost = enabled
+                prefs.artemisWifiBoostEnabled = enabled
+                if (enabled && externalDisplay != null) {
+                    ArtemisBoostManager.setBoostActive(context, true)
+                } else if (!enabled) {
+                    ArtemisBoostManager.setBoostActive(context, false)
+                }
             },
             onSelectTheme = { theme ->
                 selectedThemeId = theme.id
@@ -559,6 +577,7 @@ private fun SetupDashboardScreen(
     thermalWarning: Boolean,
     autoBypassCharging: Boolean,
     bypassChargingEnabled: Boolean,
+    artemisWifiBoost: Boolean,
     selectedThemeId: String,
     shizukuScreenOff: Boolean,
     shizukuForceRelaunch: Boolean,
@@ -571,6 +590,7 @@ private fun SetupDashboardScreen(
     onToggleAutoBypassCharging: (Boolean) -> Unit,
     onToggleBypassChargingNow: () -> Unit,
     onOpenBypassCharging: () -> Unit,
+    onToggleArtemisWifiBoost: (Boolean) -> Unit,
     onSelectTheme: (HubTheme) -> Unit,
     onPickBanner: (String) -> Unit,
     onClearBanner: (String) -> Unit,
@@ -757,6 +777,12 @@ private fun SetupDashboardScreen(
                 subtitle = "Dims the TV Hub to a clean clock after 5 min without controller input",
                 checked = idleDimmer,
                 onCheckedChange = onToggleIdleDimmer
+            )
+            ToggleRow(
+                title = "Artemis Low-Latency Wi-Fi Boost",
+                subtitle = "Holds WIFI_MODE_FULL_LOW_LATENCY lock & pauses background Wi-Fi/BLE scans while docked to prevent lag spikes",
+                checked = artemisWifiBoost,
+                onCheckedChange = onToggleArtemisWifiBoost
             )
             Spacer(Modifier.height(6.dp))
             Text(

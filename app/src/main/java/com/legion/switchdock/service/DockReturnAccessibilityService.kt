@@ -80,6 +80,13 @@ class DockReturnAccessibilityService : AccessibilityService() {
         if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val external = ExternalDisplayHelper.findExternalDisplay(this) ?: return
 
+        // Ignore window state changes on the internal tablet screen (Display 0) so touching
+        // or waking the tablet never interrupts an active Artemis stream on the TV!
+        val eventDisplayId = event.displayId
+        if (eventDisplayId != Display.INVALID_DISPLAY && eventDisplayId != external.displayId) {
+            return
+        }
+
         val pkg = event.packageName?.toString() ?: return
         if (pkg == packageName) return
 
@@ -129,6 +136,12 @@ class DockReturnAccessibilityService : AccessibilityService() {
             if (TvHubActivity.dispatchGlobalKeyEvent(event)) {
                 return true
             }
+        }
+
+        // Fast-path during gameplay (e.g. Artemis streaming): avoid DisplayManager binder IPC
+        // on normal controller buttons when neither QuickMenu nor TvHub is active!
+        if (event.keyCode != KeyEvent.KEYCODE_BUTTON_MODE && event.keyCode != KeyEvent.KEYCODE_HOME) {
+            return false
         }
 
         val external = resolveExternalDisplay()

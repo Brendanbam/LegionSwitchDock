@@ -20,6 +20,7 @@ import com.legion.switchdock.data.DockHealthMonitor
 import com.legion.switchdock.data.DockPreferences
 import com.legion.switchdock.display.ExternalDisplayHelper
 import com.legion.switchdock.shizuku.ShizukuHelper
+import com.legion.switchdock.streaming.ArtemisBoostManager
 
 class DockMonitorService : Service() {
 
@@ -93,6 +94,7 @@ class DockMonitorService : Service() {
     override fun onDestroy() {
         mainHandler.removeCallbacks(controllerPollRunnable)
         displayManager.unregisterDisplayListener(displayListener)
+        ArtemisBoostManager.setBoostActive(this, false)
         super.onDestroy()
     }
 
@@ -103,7 +105,11 @@ class DockMonitorService : Service() {
         if (external != null) {
             val isNewConnection = activeExternalDisplayId != external.displayId
             activeExternalDisplayId = external.displayId
-            updateNotification("Docked to TV (${external.summary})")
+            if (prefs.artemisWifiBoostEnabled && !ArtemisBoostManager.isLowLatencyLockHeld) {
+                ArtemisBoostManager.setBoostActive(this, true)
+            }
+            val boostTag = if (ArtemisBoostManager.isLowLatencyLockHeld) " • Low-Latency Wi-Fi" else ""
+            updateNotification("Docked to TV (${external.summary})$boostTag")
             if ((isNewConnection || autoLaunch) && prefs.autoLaunchOnDock) {
                 launchDockedExperience(external.displayId)
             }
@@ -115,6 +121,9 @@ class DockMonitorService : Service() {
     }
 
     private fun launchDockedExperience(externalDisplayId: Int) {
+        if (prefs.artemisWifiBoostEnabled) {
+            ArtemisBoostManager.setBoostActive(this, true)
+        }
         if (prefs.blackoutTabletOnDock) {
             val tabletIntent = Intent(this, MainActivity::class.java).apply {
                 putExtra(MainActivity.EXTRA_DOCKED_MODE, true)
@@ -145,6 +154,7 @@ class DockMonitorService : Service() {
     private fun handleUndocked() {
         activeExternalDisplayId = null
         updateNotification("Ready • Plug USB-C to dock to TV")
+        ArtemisBoostManager.setBoostActive(this, false)
 
         if (prefs.shizukuScreenOff) {
             ShizukuHelper.setInternalScreenBrightness(this, dimToZero = false)
