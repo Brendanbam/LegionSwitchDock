@@ -12,6 +12,7 @@ import android.graphics.drawable.Drawable
 import android.net.Uri
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import com.legion.switchdock.display.DisplayProfile
 import java.io.File
 import java.io.FileOutputStream
 
@@ -43,6 +44,29 @@ object AppRepository {
         "artemis", "moonlight", "apollo", "steam", "gamehub",
         "anikoto", "youtube", "retroarch", "dolphin", "ppsspp",
         "nethersx2", "aethersx2", "yuzu", "sudachi", "citron", "cemu"
+    )
+
+    // Glasses lean toward movies, anime and streaming (plus game streaming)
+    private val glassesPreferredPackages = listOf(
+        "com.google.android.youtube",
+        "com.nuvio.app",
+        "com.netflix.mediaclient",
+        "com.crunchyroll.crunchyroid",
+        "com.plexapp.android",
+        "com.stremio.one",
+        "com.disney.disneyplus",
+        "com.hulu.plus",
+        "com.wbd.stream",
+        "com.amazon.avod.thirdpartyclient",
+        "org.videolan.vlc",
+        "com.limelight.noir",
+        "com.limelight",
+        "com.valvesoftware.steamlink"
+    )
+
+    private val glassesNameKeywords = listOf(
+        "nuvio", "anikoto", "youtube", "netflix", "crunchyroll", "plex", "stremio",
+        "jellyfin", "disney", "hulu", "prime video", "vlc", "mx player", "artemis", "moonlight"
     )
 
     fun loadLaunchableApps(context: Context): List<AppEntry> {
@@ -77,10 +101,14 @@ object AppRepository {
     fun getOrSeedPinnedApps(context: Context, allApps: List<AppEntry>, prefs: DockPreferences): List<AppEntry> {
         val byPackage = allApps.associateBy { it.packageName }
 
-        if (!prefs.hasInitializedPins) {
+        val profile = prefs.activeProfile
+        val isGlasses = profile == DisplayProfile.GLASSES
+        if (!prefs.hasInitializedPins(profile)) {
             val seeded = mutableListOf<String>()
+            val packages = if (isGlasses) glassesPreferredPackages else preferredPackages
+            val keywords = if (isGlasses) glassesNameKeywords else preferredNameKeywords
             // 1. Exact preferred packages
-            preferredPackages.forEach { pkg ->
+            packages.forEach { pkg ->
                 if (byPackage.containsKey(pkg) && !seeded.contains(pkg)) {
                     seeded.add(pkg)
                 }
@@ -89,7 +117,7 @@ object AppRepository {
             allApps.forEach { app ->
                 val lowerLabel = app.label.lowercase()
                 val lowerPkg = app.packageName.lowercase()
-                if (preferredNameKeywords.any { lowerLabel.contains(it) || lowerPkg.contains(it) }) {
+                if (keywords.any { lowerLabel.contains(it) || lowerPkg.contains(it) }) {
                     if (!seeded.contains(app.packageName)) {
                         seeded.add(app.packageName)
                     }
@@ -103,11 +131,11 @@ object AppRepository {
                     }
                 }
             }
-            prefs.setPinnedPackages(seeded)
-            prefs.hasInitializedPins = true
+            prefs.setPinnedPackages(seeded, profile)
+            prefs.setInitializedPins(profile, true)
         }
 
-        return prefs.getPinnedPackages().mapNotNull { byPackage[it] }
+        return prefs.getPinnedPackages(profile).mapNotNull { byPackage[it] }
     }
 
     private fun drawableToImageBitmap(drawable: Drawable): ImageBitmap {

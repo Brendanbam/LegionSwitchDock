@@ -58,6 +58,7 @@ import androidx.compose.material.icons.rounded.Lan
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Thermostat
 import androidx.compose.material.icons.rounded.Tv
+import androidx.compose.material.icons.rounded.ViewInAr
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -79,6 +80,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -100,6 +102,7 @@ import com.legion.switchdock.service.DockReturnAccessibilityService
 import com.legion.switchdock.shizuku.ShizukuHelper
 import com.legion.switchdock.shizuku.ShizukuStatus
 import com.legion.switchdock.streaming.ArtemisBoostManager
+import com.legion.switchdock.display.DisplayProfile
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import java.text.SimpleDateFormat
@@ -342,14 +345,10 @@ class TvHubActivity : ComponentActivity() {
     }
 
     private fun applyPreferredDisplayMode() {
-        val prefs = DockPreferences(this)
-        val ext = ExternalDisplayHelper.findExternalDisplay(this)
-        val desiredModeId = if (prefs.preferredDisplayModeId != 0) {
-            prefs.preferredDisplayModeId
-        } else {
-            ext?.supportedModes?.firstOrNull()?.modeId ?: 0
-        }
-        if (desiredModeId != 0) {
+        val ext = ExternalDisplayHelper.findExternalDisplay(this) ?: return
+        // TV and Glasses each get their own resolution / refresh rate
+        val desiredModeId = ExternalDisplayHelper.resolvePreferredMode(this, ext)?.modeId ?: 0
+        if (desiredModeId != 0 && window.attributes.preferredDisplayModeId != desiredModeId) {
             val lp = window.attributes
             lp.preferredDisplayModeId = desiredModeId
             window.attributes = lp
@@ -418,6 +417,12 @@ class TvHubActivity : ComponentActivity() {
             return instance.handleControllerMotionEvent(event)
         }
 
+        /** Lets the tablet touchpad (glasses mode) drive the hub like a controller. */
+        fun sendRemoteCommand(cmd: ControllerCommand): Boolean {
+            val instance = activeInstance ?: return false
+            return instance.controllerCommands.tryEmit(cmd)
+        }
+
         fun toggleQuickMenuFromService(): Boolean {
             val instance = activeInstance ?: return false
             if (!isInstanceResumed) return false
@@ -445,7 +450,9 @@ private fun SwitchTvHubScreen(
     var showQuickMenu by remember { mutableStateOf(false) }
     var isIdleDimmed by remember { mutableStateOf(false) }
     var lastInteractionMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    var activeTheme by remember { mutableStateOf(HubTheme.fromId(prefs.hubThemeId)) }
+    var displayProfile by remember { mutableStateOf(prefs.activeProfile) }
+    val isGlasses = displayProfile == DisplayProfile.GLASSES
+    var activeTheme by remember { mutableStateOf(HubTheme.fromId(prefs.getThemeId(displayProfile))) }
 
     // Deterministic controller selection states (never lost when display focus shifts!)
     var selectedTileIndex by remember { mutableIntStateOf(0) }
@@ -570,7 +577,7 @@ private fun SwitchTvHubScreen(
                                 8 -> {
                                     val nextTheme = activeTheme.next()
                                     activeTheme = nextTheme
-                                    prefs.hubThemeId = nextTheme.id
+                                    prefs.setThemeId(displayProfile, nextTheme.id)
                                 }
                                 9 -> triggerSleepMode()
                                 10 -> showQuickMenu = false
@@ -739,7 +746,14 @@ private fun SwitchTvHubScreen(
 
             val ext = ExternalDisplayHelper.findExternalDisplay(context)
             displaySummary = ext?.summary ?: "Mirror / TV Mode"
-            activeTheme = HubTheme.fromId(prefs.hubThemeId)
+            val liveProfile = ext?.profile ?: DisplayProfile.TV
+            if (liveProfile != displayProfile) {
+                // Switched between TV and glasses: swap to that menu's pins and theme
+                displayProfile = liveProfile
+                selectedTileIndex = 0
+                reloadApps()
+            }
+            activeTheme = HubTheme.fromId(prefs.getThemeId(liveProfile))
 
             if (prefs.idleDimmerEnabled && !isIdleDimmed &&
                 System.currentTimeMillis() - lastInteractionMs >= idleTimeoutMs
@@ -760,10 +774,14 @@ private fun SwitchTvHubScreen(
                 )
             )
     ) {
+        val configuration = LocalConfiguration.current
+        val glassesMarginFraction = if (isGlasses) prefs.glassesEdgeMarginPct / 100f else 0f
+        val outerPadH = 44.dp + (configuration.screenWidthDp * glassesMarginFraction).dp
+        val outerPadV = 28.dp + (configuration.screenHeightDp * glassesMarginFraction).dp
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 44.dp, vertical = 28.dp),
+                .padding(horizontal = outerPadH, vertical = outerPadV),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             // Top Switch-Style Status Bar
@@ -787,13 +805,13 @@ private fun SwitchTvHubScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(
-                                Icons.Rounded.Tv,
+                                if (isGlasses) Icons.Rounded.ViewInAr else Icons.Rounded.Tv,
                                 contentDescription = null,
                                 tint = activeTheme.accent,
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
-                                text = "LEGION SWITCH",
+                                text = if (isGlasses) "LEGION XR" else "LEGION SWITCH",
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp,
@@ -833,6 +851,22 @@ private fun SwitchTvHubScreen(
                                     fontWeight = FontWeight.SemiBold
                                 )
                             }
+                        }
+                    }
+
+                    if (isGlasses && prefs.glassesBatteryWarning && !health.isCharging && health.batteryPercent <= 20) {
+                        Surface(
+                            color = Color(0xFFEF4444).copy(alpha = 0.20f),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, Color(0xFFEF4444))
+                        ) {
+                            Text(
+                                text = "Tablet ${health.batteryPercent}% • Glasses run on tablet power",
+                                color = Color(0xFFFCA5A5),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
                         }
                     }
 
@@ -1067,7 +1101,7 @@ private fun SwitchTvHubScreen(
                 onCycleTheme = {
                     val nextTheme = activeTheme.next()
                     activeTheme = nextTheme
-                    prefs.hubThemeId = nextTheme.id
+                    prefs.setThemeId(displayProfile, nextTheme.id)
                 },
                 onTriggerScreensaver = {
                     showQuickMenu = false
