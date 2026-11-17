@@ -33,6 +33,7 @@ class DockMonitorService : Service() {
     private var lastLowControllerAlertMs: Long = 0L
     private var lastGlassesBatteryAlertPct: Int = 101
     private var activeProfile: DisplayProfile? = null
+    private var lastAnnouncedMode: String? = null
 
     private val controllerPollRunnable = object : Runnable {
         override fun run() {
@@ -96,6 +97,7 @@ class DockMonitorService : Service() {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification("Watching for TV / XR glasses"))
         displayManager.registerDisplayListener(displayListener, mainHandler)
+        ShizukuHelper.init(this)
         ShizukuHelper.ensureBound(this)
         evaluateDisplays(autoLaunch = false)
         mainHandler.postDelayed(controllerPollRunnable, 30_000L)
@@ -158,11 +160,15 @@ class DockMonitorService : Service() {
                 this, external.displayId, target.width, target.height, target.refreshRateExact
             )
         }
-        Toast.makeText(
-            this,
-            "${external.profile.label} detected • ${target.label}",
-            Toast.LENGTH_SHORT
-        ).show()
+        val announceKey = "${external.name}|${target.key}"
+        if (announceKey != lastAnnouncedMode) {
+            lastAnnouncedMode = announceKey
+            Toast.makeText(
+                this,
+                "${external.profile.label} detected • ${target.label}",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
     }
 
     private fun launchDockedExperience(externalDisplayId: Int) {
@@ -199,6 +205,7 @@ class DockMonitorService : Service() {
     private fun handleUndocked() {
         activeExternalDisplayId = null
         activeProfile = null
+        lastAnnouncedMode = null
         updateNotification("Ready • Plug in your TV dock or XR glasses")
         ArtemisBoostManager.setBoostActive(this, false)
 

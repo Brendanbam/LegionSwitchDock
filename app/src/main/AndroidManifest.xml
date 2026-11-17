@@ -43,7 +43,7 @@
         <!-- 10-Foot Switch-Style TV Hub Activity (targets external displayId in its own Task) -->
         <activity
             android:name=".TvHubActivity"
-            android:exported="true"
+            android:exported="false"
             android:launchMode="singleTask"
             android:taskAffinity="com.legion.switchdock.tvhub"
             android:resizeableActivity="true"

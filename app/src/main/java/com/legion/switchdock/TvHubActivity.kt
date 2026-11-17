@@ -420,6 +420,8 @@ class TvHubActivity : ComponentActivity() {
         /** Lets the tablet touchpad (glasses mode) drive the hub like a controller. */
         fun sendRemoteCommand(cmd: ControllerCommand): Boolean {
             val instance = activeInstance ?: return false
+            // Only while the hub is on screen, so touchpad swipes never launch apps over a movie/game
+            if (!isInstanceResumed) return false
             return instance.controllerCommands.tryEmit(cmd)
         }
 

@@ -52,6 +52,7 @@ object ArtemisBoostManager {
         acquireLowLatencyWifiLock(context.applicationContext)
         if (ShizukuHelper.getStatus() == ShizukuStatus.READY) {
             if (isStreamingPackage(packageName)) {
+                ShizukuHelper.rememberScanSettings(context)
                 val cmd = listOf(
                     "cmd deviceidle whitelist +$packageName",
                     "cmd activity set-standby-bucket $packageName active",
@@ -106,6 +107,7 @@ object ArtemisBoostManager {
 
     private fun applyShizukuStreamingOptimizations(context: Context, enable: Boolean) {
         if (enable) {
+            ShizukuHelper.rememberScanSettings(context)
             val whitelistCmds = STREAMING_PACKAGES.flatMap { pkg ->
                 listOf(
                     "cmd deviceidle whitelist +$pkg",
@@ -120,12 +122,10 @@ object ArtemisBoostManager {
             )
             ShizukuHelper.runCommand(context, cmds.joinToString(" ; "))
         } else {
-            val cmds = listOf(
-                "settings put global wifi_scan_always_enabled 1",
-                "settings put global ble_scan_always_enabled 1",
-                "cmd power set-fixed-performance-mode-enabled false"
-            )
-            ShizukuHelper.runCommand(context, cmds.joinToString(" ; "))
+            // Restore the user's own scan settings rather than forcing them on
+            val cmds = ShizukuHelper.restoreScanSettingsCommand(context) +
+                " ; cmd power set-fixed-performance-mode-enabled false"
+            ShizukuHelper.runCommand(context, cmds)
         }
     }
 }
