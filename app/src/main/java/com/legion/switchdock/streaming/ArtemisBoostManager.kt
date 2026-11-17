@@ -19,6 +19,7 @@ import com.legion.switchdock.shizuku.ShizukuStatus
 object ArtemisBoostManager {
 
     private val STREAMING_PACKAGES = listOf(
+        "com.limelight.legion",
         "com.limelight.noir",
         "com.limelight",
         "com.valvesoftware.steamlink"

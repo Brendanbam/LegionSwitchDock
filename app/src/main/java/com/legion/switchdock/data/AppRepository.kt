@@ -27,6 +27,7 @@ data class AppEntry(
 object AppRepository {
     // Priority keywords/packages for smart first-run pinning on the Switch-style TV row
     private val preferredPackages = listOf(
+        "com.limelight.legion",        // Artemis Legion (auto TV/glasses settings)
         "com.limelight.noir",          // Artemis (Apollo client)
         "com.limelight",               // Moonlight
         "com.valvesoftware.steamlink", // Steam Link
@@ -61,7 +62,8 @@ object AppRepository {
         "org.videolan.vlc",
         "com.limelight.noir",
         "com.limelight",
-        "com.valvesoftware.steamlink"
+        "com.valvesoftware.steamlink",
+        "com.limelight.legion"
     )
 
     private val glassesNameKeywords = listOf(
