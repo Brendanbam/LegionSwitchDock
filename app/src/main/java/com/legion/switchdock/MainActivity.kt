@@ -988,7 +988,7 @@ private fun SetupDashboardScreen(
                 }
             }
             Text(
-                text = "Tip: Hold Guide (or press L1+R1+Start/Select) while docked to open the Quick Menu over any game.",
+                text = "Tip: Hold Guide (or hold both stick clicks, L3 + R3, for half a second) while docked to open the Quick Menu over any game.",
                 color = Color(0xFF9BA3B4),
                 fontSize = 12.sp
             )

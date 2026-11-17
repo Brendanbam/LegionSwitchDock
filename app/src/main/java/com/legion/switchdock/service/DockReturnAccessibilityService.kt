@@ -25,8 +25,16 @@ class DockReturnAccessibilityService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var guideDownTimeMs = 0L
     private var guideLongPressHandled = false
-    private var l1Pressed = false
-    private var r1Pressed = false
+    private var l3Pressed = false
+    private var r3Pressed = false
+
+    private val stickComboRunnable = Runnable {
+        val now = SystemClock.uptimeMillis()
+        if (l3Pressed && r3Pressed && now - lastComboToggleMs >= 400L) {
+            lastComboToggleMs = now
+            toggleQuickMenuBestEffort()
+        }
+    }
 
     private val guideLongPressRunnable = Runnable {
         guideLongPressHandled = true
@@ -105,20 +113,21 @@ class DockReturnAccessibilityService : AccessibilityService() {
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
-        // Track L1 + R1 + Start / Select combo anywhere (Extended Mode or Mirror Mode)
+        // Quick Menu combo: hold BOTH stick clicks (L3 + R3) for half a second.
+        // Chosen because Artemis/Moonlight use Start/Select/L1/R1 combos (e.g. Start+Select+L1+R1 closes
+        // the stream). The stick clicks are never consumed, so games still receive them normally.
         when (event.keyCode) {
-            KeyEvent.KEYCODE_BUTTON_L1 -> l1Pressed = event.action == KeyEvent.ACTION_DOWN
-            KeyEvent.KEYCODE_BUTTON_R1 -> r1Pressed = event.action == KeyEvent.ACTION_DOWN
-            KeyEvent.KEYCODE_BUTTON_START,
-            KeyEvent.KEYCODE_BUTTON_SELECT -> {
-                if (event.action == KeyEvent.ACTION_DOWN && l1Pressed && r1Pressed) {
-                    val now = SystemClock.uptimeMillis()
-                    if (now - lastComboToggleMs >= 400L) {
-                        lastComboToggleMs = now
-                        toggleQuickMenuBestEffort()
-                    }
-                    return true
+            KeyEvent.KEYCODE_BUTTON_THUMBL -> l3Pressed = event.action == KeyEvent.ACTION_DOWN
+            KeyEvent.KEYCODE_BUTTON_THUMBR -> r3Pressed = event.action == KeyEvent.ACTION_DOWN
+        }
+        if (event.keyCode == KeyEvent.KEYCODE_BUTTON_THUMBL || event.keyCode == KeyEvent.KEYCODE_BUTTON_THUMBR) {
+            if (l3Pressed && r3Pressed) {
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                    handler.removeCallbacks(stickComboRunnable)
+                    handler.postDelayed(stickComboRunnable, STICK_COMBO_HOLD_MS)
                 }
+            } else {
+                handler.removeCallbacks(stickComboRunnable)
             }
         }
 
@@ -218,5 +227,6 @@ class DockReturnAccessibilityService : AccessibilityService() {
 
     companion object {
         const val ACTION_TOGGLE_QUICK_MENU = "com.legion.switchdock.ACTION_TOGGLE_QUICK_MENU"
+        private const val STICK_COMBO_HOLD_MS = 500L
     }
 }
