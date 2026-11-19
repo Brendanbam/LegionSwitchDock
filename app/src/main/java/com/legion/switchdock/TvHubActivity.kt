@@ -134,7 +134,7 @@ class TvHubActivity : ComponentActivity() {
     private val bluetoothHub by lazy { BluetoothHub(this) }
 
     @Deprecated("Deprecated in Java")
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == BluetoothHub.PERMISSION_REQUEST) bluetoothHub.onPermissionResult()
     }
