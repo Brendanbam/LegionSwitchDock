@@ -86,6 +86,14 @@ class DockReturnAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+
+        // A second-screen app (e.g. PXPlay) was running on the tablet: when the tablet goes back to
+        // this app or the launcher, it has closed, so the hub takes the TV/glasses back.
+        if (TvHubActivity.handoffPackage != null && event.displayId == Display.DEFAULT_DISPLAY) {
+            val p = event.packageName?.toString()
+            if (p == packageName || (p != null && isLauncher(p))) TvHubActivity.endHandoffFromService()
+        }
+
         val external = ExternalDisplayHelper.findExternalDisplay(this) ?: return
 
         // Ignore window state changes on the internal tablet screen (Display 0) so touching
@@ -100,10 +108,7 @@ class DockReturnAccessibilityService : AccessibilityService() {
 
         // If ZUI desktop/launcher/systemui takes focus on the external display after closing an app,
         // bring TvHubActivity back to the front on the TV.
-        val isLauncherOrDesktop = pkg.contains("launcher", ignoreCase = true) ||
-            pkg.contains("desktop", ignoreCase = true) ||
-            pkg == "com.zui.launcher" ||
-            pkg == "com.android.launcher3"
+        val isLauncherOrDesktop = isLauncher(pkg)
 
         if (isLauncherOrDesktop) {
             returnToTvHub(external.displayId)
@@ -199,6 +204,12 @@ class DockReturnAccessibilityService : AccessibilityService() {
     override fun onInterrupt() {
         handler.removeCallbacksAndMessages(null)
     }
+
+    private fun isLauncher(pkg: String): Boolean =
+        pkg.contains("launcher", ignoreCase = true) ||
+            pkg.contains("desktop", ignoreCase = true) ||
+            pkg == "com.zui.launcher" ||
+            pkg == "com.android.launcher3"
 
     private fun resolveExternalDisplay(): Display? {
         val info = ExternalDisplayHelper.findExternalDisplay(this) ?: return null

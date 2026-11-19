@@ -89,6 +89,8 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.legion.switchdock.bluetooth.BluetoothHub
+import com.legion.switchdock.bluetooth.BluetoothPanel
 import com.legion.switchdock.data.AppEntry
 import com.legion.switchdock.data.AppRepository
 import com.legion.switchdock.data.DockHealthMonitor
@@ -129,6 +131,14 @@ class TvHubActivity : ComponentActivity() {
     private var lastHandledKeyCode: Int = -1
     private var lastHandledAction: Int = -1
 
+    private val bluetoothHub by lazy { BluetoothHub(this) }
+
+    @Deprecated("Deprecated in Java")
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == BluetoothHub.PERMISSION_REQUEST) bluetoothHub.onPermissionResult()
+    }
+
     private val undockReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
@@ -159,8 +169,10 @@ class TvHubActivity : ComponentActivity() {
 
         setContent {
             MaterialTheme {
+                Box(Modifier.fillMaxSize()) {
                 SwitchTvHubScreen(
                     targetDisplayId = targetDisplayId,
+                    bluetooth = bluetoothHub,
                     commands = controllerCommands,
                     onLaunchApp = { app -> launchAppOnTv(app) },
                     onSetKeepScreenOn = { keepOn ->
@@ -172,6 +184,8 @@ class TvHubActivity : ComponentActivity() {
                     },
                     onExitHub = { finish() }
                 )
+                handoffLabel.value?.let { HandoffScreen(it) }
+                }
             }
         }
     }
@@ -191,6 +205,8 @@ class TvHubActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        // Guide / Home while a second-screen app runs on the tablet: take the screen back
+        if (handoffPackage != null) endHandoff(sendAppToBack = true)
         activeInstance = this
         targetDisplayId = intent.getIntExtra(
             EXTRA_DISPLAY_ID,
@@ -210,6 +226,8 @@ class TvHubActivity : ComponentActivity() {
     }
 
     fun handleControllerKeyEvent(event: KeyEvent): Boolean {
+        // A second-screen app on the tablet owns the controller (Guide is handled by the accessibility service)
+        if (handoffPackage != null) return false
         if (event.downTime == lastHandledDownTime &&
             event.eventTime == lastHandledEventTime &&
             event.keyCode == lastHandledKeyCode &&
@@ -304,6 +322,7 @@ class TvHubActivity : ComponentActivity() {
     }
 
     fun handleControllerMotionEvent(event: MotionEvent): Boolean {
+        if (handoffPackage != null) return false
         val isJoystick = (event.source and InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK ||
             (event.source and InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD ||
             (event.source and InputDevice.SOURCE_DPAD) == InputDevice.SOURCE_DPAD
@@ -361,6 +380,7 @@ class TvHubActivity : ComponentActivity() {
             activeInstance = null
         }
         runCatching { unregisterReceiver(undockReceiver) }
+        if (bluetoothHub.visible) bluetoothHub.close()
         super.onDestroy()
     }
 
@@ -386,6 +406,16 @@ class TvHubActivity : ComponentActivity() {
         // Apply low-latency Wi-Fi lock & Shizuku streaming boost before launching
         ArtemisBoostManager.onAppLaunched(this, app.packageName)
 
+        // Second-screen apps (e.g. PXPlay) run on the tablet and send the picture here themselves.
+        // The hub turns black (see-through in glasses) and stops reading the controller meanwhile.
+        if (externalId != Display.DEFAULT_DISPLAY && prefs.isSecondScreenApp(app.packageName)) {
+            handoffPackage = app.packageName
+            handoffStartedMs = SystemClock.uptimeMillis()
+            handoffLabel.value = app.label
+            ExternalDisplayHelper.launchPackageOnDisplay(this, app.packageName, Display.DEFAULT_DISPLAY)
+            return
+        }
+
         // Never force-stop streaming apps (e.g. Artemis / Moonlight / Steam Link) when launching
         // from the TV Hub so an active game stream is resumed cleanly instead of killed!
         if (prefs.shizukuForceRelaunch &&
@@ -395,6 +425,27 @@ class TvHubActivity : ComponentActivity() {
             ShizukuHelper.forceStopPackage(this, app.packageName)
         }
         ExternalDisplayHelper.launchPackageOnDisplay(this, app.packageName, externalId)
+    }
+
+    private val handoffLabel = mutableStateOf<String?>(null)
+
+    /** Ends a second-screen session. [sendAppToBack]: also cover the app on the tablet so it stops casting here. */
+    fun endHandoff(sendAppToBack: Boolean) {
+        handoffPackage = null
+        handoffLabel.value = null
+        if (!sendAppToBack) return
+        val prefs = DockPreferences(this)
+        val tabletIntent = if (prefs.blackoutTabletOnDock) {
+            Intent(this, MainActivity::class.java).apply {
+                putExtra(MainActivity.EXTRA_DOCKED_MODE, true)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            }
+        } else {
+            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        ExternalDisplayHelper.launchIntentOnDisplay(this, tabletIntent, Display.DEFAULT_DISPLAY)
+        // Keep controller focus on the hub's screen
+        window.decorView.post { window.decorView.requestFocus() }
     }
 
     fun toggleMenu() {
@@ -411,13 +462,30 @@ class TvHubActivity : ComponentActivity() {
         @Volatile
         var activeInstance: TvHubActivity? = null
 
+        /** Package of a second-screen app running on the tablet (e.g. PXPlay), or null. */
+        @Volatile
+        var handoffPackage: String? = null
+        @Volatile
+        var handoffStartedMs: Long = 0L
+
+        /** The second-screen app closed on the tablet: bring the hub back to life. */
+        fun endHandoffFromService() {
+            if (handoffPackage == null) return
+            if (SystemClock.uptimeMillis() - handoffStartedMs < 3000L) return
+            val instance = activeInstance
+            if (instance == null) { handoffPackage = null; return }
+            instance.runOnUiThread { instance.endHandoff(sendAppToBack = false) }
+        }
+
         fun dispatchGlobalKeyEvent(event: KeyEvent): Boolean {
+            if (handoffPackage != null) return false
             val instance = activeInstance ?: return false
             if (!isInstanceResumed) return false
             return instance.handleControllerKeyEvent(event)
         }
 
         fun dispatchGlobalMotionEvent(event: MotionEvent): Boolean {
+            if (handoffPackage != null) return false
             val instance = activeInstance ?: return false
             if (!isInstanceResumed) return false
             return instance.handleControllerMotionEvent(event)
@@ -425,6 +493,7 @@ class TvHubActivity : ComponentActivity() {
 
         /** Lets the tablet touchpad (glasses mode) drive the hub like a controller. */
         fun sendRemoteCommand(cmd: ControllerCommand): Boolean {
+            if (handoffPackage != null) return false
             val instance = activeInstance ?: return false
             // Only while the hub is on screen, so touchpad swipes never launch apps over a movie/game
             if (!isInstanceResumed) return false
@@ -432,6 +501,7 @@ class TvHubActivity : ComponentActivity() {
         }
 
         fun toggleQuickMenuFromService(): Boolean {
+            if (handoffPackage != null) return false
             val instance = activeInstance ?: return false
             if (!isInstanceResumed) return false
             instance.toggleMenu()
@@ -440,9 +510,26 @@ class TvHubActivity : ComponentActivity() {
     }
 }
 
+/** Shown on the TV/glasses while a second-screen app on the tablet casts its picture here. Black reads as see-through in glasses. */
+@Composable
+private fun HandoffScreen(appLabel: String) {
+    Box(
+        modifier = Modifier.fillMaxSize().background(Color.Black),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        Text(
+            text = "$appLabel is running on the tablet • Press Guide to return to the hub",
+            color = Color(0x99FFFFFF),
+            fontSize = 14.sp,
+            modifier = Modifier.padding(bottom = 32.dp)
+        )
+    }
+}
+
 @Composable
 private fun SwitchTvHubScreen(
     targetDisplayId: Int,
+    bluetooth: BluetoothHub,
     commands: MutableSharedFlow<ControllerCommand>,
     onLaunchApp: (AppEntry) -> Unit,
     onSetKeepScreenOn: (Boolean) -> Unit,
@@ -543,6 +630,15 @@ private fun SwitchTvHubScreen(
             val currentFocusedPkg = currentPinned.getOrNull(currentSafeTileIdx)?.packageName
 
             when {
+                bluetooth.visible -> {
+                    when (cmd) {
+                        ControllerCommand.B_BACK, ControllerCommand.START_MENU -> SwitchAudioFeedback.playBack(context)
+                        ControllerCommand.A_CONFIRM, ControllerCommand.X_ACTION, ControllerCommand.Y_DRAWER -> SwitchAudioFeedback.playSelect(context)
+                        else -> SwitchAudioFeedback.playMove(context)
+                    }
+                    bluetooth.handle(cmd)
+                }
+
                 showQuickMenu -> {
                     val menuCount = 11
                     when (cmd) {
@@ -566,7 +662,7 @@ private fun SwitchTvHubScreen(
                                 2 -> audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, 0)
                                 3 -> {
                                     showQuickMenu = false
-                                    context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                    bluetooth.open()
                                 }
                                 4 -> prefs.uiSoundsEnabled = !prefs.uiSoundsEnabled
                                 5 -> prefs.idleDimmerEnabled = !prefs.idleDimmerEnabled
@@ -1122,11 +1218,20 @@ private fun SwitchTvHubScreen(
                 onTriggerSleepMode = {
                     triggerSleepMode()
                 },
+                onOpenBluetooth = {
+                    showQuickMenu = false
+                    bluetooth.open()
+                },
                 onClose = {
                     SwitchAudioFeedback.playBack(context)
                     showQuickMenu = false
                 }
             )
+        }
+
+        // In-hub Bluetooth devices screen
+        if (bluetooth.visible) {
+            BluetoothPanel(bluetooth)
         }
 
         // 5-Minute Idle Dimmer / Screensaver Clock
@@ -1297,6 +1402,7 @@ private fun InHubQuickMenuOverlay(
     onCycleTheme: () -> Unit,
     onTriggerScreensaver: () -> Unit,
     onTriggerSleepMode: () -> Unit,
+    onOpenBluetooth: () -> Unit,
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
@@ -1394,15 +1500,12 @@ private fun InHubQuickMenuOverlay(
                 }
 
                 QuickMenuButton(
-                    label = "Audio Output / Bluetooth Settings",
+                    label = "Bluetooth Devices",
                     isSelected = (selectedIndex == 3),
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
                         onSelectIndex(3)
-                        onClose()
-                        context.startActivity(
-                            Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        )
+                        onOpenBluetooth()
                     }
                 )
                 QuickMenuButton(

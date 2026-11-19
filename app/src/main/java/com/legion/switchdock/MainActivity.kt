@@ -1024,6 +1024,9 @@ private fun SetupDashboardScreen(
             }
         }
 
+        // Apps with their own second-screen mode (PXPlay)
+        SecondScreenAppsCard(pinnedApps)
+
         // Optional Shizuku Power Tweaks
         SectionCard(title = "Optional Shizuku Power Tweaks") {
             val shizukuText = when (shizukuStatus) {
@@ -1086,6 +1089,48 @@ private fun SectionCard(
                 letterSpacing = 0.5.sp
             )
             content()
+        }
+    }
+}
+
+/**
+ * Apps like PXPlay have their own multi-display mode: they keep touch controls on the screen they run on and
+ * send the picture to the other screen. These open on the tablet so the game lands on the TV/glasses.
+ */
+@Composable
+private fun SecondScreenAppsCard(pinnedApps: List<AppEntry>) {
+    val context = LocalContext.current
+    val prefs = remember { DockPreferences(context) }
+    var enabled by remember { mutableStateOf(prefs.getSecondScreenPackages()) }
+    // Pinned apps, plus PXPlay whenever it's installed
+    val apps = remember(pinnedApps) {
+        val pm = context.packageManager
+        val extra = DockPreferences.DEFAULT_SECOND_SCREEN_PACKAGES
+            .filter { pkg -> pinnedApps.none { it.packageName == pkg } }
+            .mapNotNull { pkg ->
+                runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() to pkg }.getOrNull()
+            }
+        extra + pinnedApps.filter { !AppRepository.isVirtualTile(it.packageName) }.map { it.label to it.packageName }
+    }
+    if (apps.isEmpty()) return
+    SectionCard(title = "Apps That Cast From the Tablet") {
+        Text(
+            text = "Turn this on for apps with their own multi-display mode (like PXPlay). They open on the tablet " +
+                "and send the game picture to the TV or glasses, keeping touch buttons on the tablet. The hub steps " +
+                "aside until you press Guide.",
+            color = Color(0xFF9BA3B4),
+            fontSize = 12.sp
+        )
+        apps.forEach { (label, pkg) ->
+            ToggleRow(
+                title = label,
+                subtitle = if (pkg in enabled) "Opens on the tablet, picture on the TV/glasses" else "Opens on the TV/glasses",
+                checked = pkg in enabled,
+                onCheckedChange = { on ->
+                    prefs.setSecondScreenApp(pkg, on)
+                    enabled = prefs.getSecondScreenPackages()
+                }
+            )
         }
     }
 }

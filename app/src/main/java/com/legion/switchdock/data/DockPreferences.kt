@@ -111,6 +111,24 @@ class DockPreferences(private val context: Context) {
         get() = prefs.getBoolean(KEY_GLASSES_BATTERY_WARNING, true)
         set(value) = prefs.edit().putBoolean(KEY_GLASSES_BATTERY_WARNING, value).apply()
 
+    /**
+     * "Second-screen" apps open on the tablet instead of the TV/glasses. These apps (e.g. PXPlay)
+     * have their own multi-display mode: they keep their touch controls on the screen they run on
+     * and send the game picture to the external display. Launched onto the external display they
+     * do the reverse (stream on the tablet, touch buttons in the glasses), so they start here.
+     */
+    fun getSecondScreenPackages(): Set<String> =
+        prefs.getStringSet(KEY_SECOND_SCREEN_PACKAGES, DEFAULT_SECOND_SCREEN_PACKAGES)?.toSet()
+            ?: DEFAULT_SECOND_SCREEN_PACKAGES
+
+    fun isSecondScreenApp(packageName: String): Boolean = getSecondScreenPackages().contains(packageName)
+
+    fun setSecondScreenApp(packageName: String, enabled: Boolean) {
+        val next = getSecondScreenPackages().toMutableSet()
+        if (enabled) next.add(packageName) else next.remove(packageName)
+        prefs.edit().putStringSet(KEY_SECOND_SCREEN_PACKAGES, next).apply()
+    }
+
     fun hasInitializedPins(profile: DisplayProfile = activeProfile): Boolean =
         prefs.getBoolean(profileKey(KEY_PINS_INITIALIZED, profile), false)
 
@@ -156,6 +174,9 @@ class DockPreferences(private val context: Context) {
     }
 
     companion object {
+        const val PXPLAY_PACKAGE = "psplay.grill.com"
+        val DEFAULT_SECOND_SCREEN_PACKAGES = setOf(PXPLAY_PACKAGE)
+        private const val KEY_SECOND_SCREEN_PACKAGES = "second_screen_packages"
         private const val KEY_SERVICE_ENABLED = "service_enabled"
         private const val KEY_AUTO_LAUNCH = "auto_launch_on_dock"
         private const val KEY_BLACKOUT_TABLET = "blackout_tablet_on_dock"
