@@ -35,6 +35,45 @@ class DockMonitorService : Service() {
     private var activeProfile: DisplayProfile? = null
     private var lastAnnouncedMode: String? = null
 
+    // Display-mode auto-set: keeps checking after a plug-in until the TV / glasses are really in
+    // the saved mode. Covers Shizuku being started after the cable went in (e.g. after a reboot)
+    // and the system ignoring the first request. Stops once the mode sticks, so it never fights
+    // an app (like Artemis) that picks its own refresh rate later.
+    private var modeCheckStartedMs = 0L
+    private var lastModeRequestMs = 0L
+    private var modeRequests = 0
+    private val modeCheckRunnable = object : Runnable {
+        override fun run() {
+            val external = ExternalDisplayHelper.findExternalDisplay(this@DockMonitorService) ?: return
+            val target = ExternalDisplayHelper.resolvePreferredMode(this@DockMonitorService, external) ?: return
+            val isActive = external.width == target.width && external.height == target.height &&
+                external.refreshRateHz == target.refreshRateHz
+            if (isActive) return
+            val now = System.currentTimeMillis()
+            // Give up after 10 minutes, or 6 requests that Shizuku carried out
+            if (now - modeCheckStartedMs > 10 * 60_000L || modeRequests >= 6) return
+            if (ShizukuHelper.getStatus() == ShizukuStatus.READY && now - lastModeRequestMs > 5_000L) {
+                ShizukuHelper.ensureBound(this@DockMonitorService)
+                if (ShizukuHelper.setExternalDisplayMode(
+                        this@DockMonitorService, external.displayId, target.width, target.height, target.refreshRateExact
+                    )
+                ) {
+                    lastModeRequestMs = now
+                    modeRequests++
+                }
+            }
+            mainHandler.postDelayed(this, 3_000L)
+        }
+    }
+
+    private fun startModeCheck() {
+        mainHandler.removeCallbacks(modeCheckRunnable)
+        modeCheckStartedMs = System.currentTimeMillis()
+        lastModeRequestMs = System.currentTimeMillis()
+        modeRequests = 0
+        mainHandler.postDelayed(modeCheckRunnable, 3_000L)
+    }
+
     private val controllerPollRunnable = object : Runnable {
         override fun run() {
             if (activeExternalDisplayId != null) {
@@ -114,6 +153,7 @@ class DockMonitorService : Service() {
 
     override fun onDestroy() {
         mainHandler.removeCallbacks(controllerPollRunnable)
+        mainHandler.removeCallbacks(modeCheckRunnable)
         displayManager.unregisterDisplayListener(displayListener)
         ArtemisBoostManager.setBoostActive(this, false)
         super.onDestroy()
@@ -160,6 +200,8 @@ class DockMonitorService : Service() {
                 this, external.displayId, target.width, target.height, target.refreshRateExact
             )
         }
+        // Confirm it took, and catch Shizuku coming up later
+        if (!alreadyActive) startModeCheck()
         val announceKey = "${external.name}|${target.key}"
         if (announceKey != lastAnnouncedMode) {
             lastAnnouncedMode = announceKey
@@ -203,6 +245,7 @@ class DockMonitorService : Service() {
     }
 
     private fun handleUndocked() {
+        mainHandler.removeCallbacks(modeCheckRunnable)
         activeExternalDisplayId = null
         activeProfile = null
         lastAnnouncedMode = null
