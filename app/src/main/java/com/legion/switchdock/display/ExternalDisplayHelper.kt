@@ -74,10 +74,12 @@ object ExternalDisplayHelper {
     fun resolvePreferredMode(context: Context, info: ExternalDisplayInfo): ExternalDisplayMode? {
         val prefs = DockPreferences(context)
         val savedKey = prefs.getPreferredModeKey(info.profile)
-        info.supportedModes.firstOrNull { it.key == savedKey }?.let { return it }
+        // Ignore an old automatic pick of cinema 4K (4096 wide) on a TV
+        if (info.profile == DisplayProfile.TV && savedKey.startsWith("4096x")) prefs.setPreferredModeKey(info.profile, "")
+        else info.supportedModes.firstOrNull { it.key == savedKey }?.let { return it }
         // Carry over a TV mode locked before profiles existed
         if (savedKey.isEmpty() && info.profile == DisplayProfile.TV && prefs.preferredDisplayModeId != 0) {
-            info.supportedModes.firstOrNull { it.modeId == prefs.preferredDisplayModeId }?.let { return it }
+            info.supportedModes.firstOrNull { it.modeId == prefs.preferredDisplayModeId && it.width != 4096 }?.let { return it }
         }
         return info.supportedModes.firstOrNull()
     }
@@ -108,8 +110,12 @@ object ExternalDisplayHelper {
                     compareByDescending<ExternalDisplayMode> { it.refreshRateHz }
                         .thenByDescending { it.width * it.height }
                 } else {
-                    // TV: resolution first (4K), at 60Hz or better
-                    compareByDescending<ExternalDisplayMode> { it.refreshRateHz >= 60 }
+                    // TV: 3840×2160 @ 60Hz first. TVs also list 4096×2160 (cinema 4K, wider than the
+                    // screen), which many TVs crop, show black bars for or refuse, so 16:9 modes come first.
+                    compareByDescending<ExternalDisplayMode> { it.width == 3840 && it.height == 2160 && it.refreshRateHz == 60 }
+                        .thenByDescending { it.width * 9 == it.height * 16 }
+                        .thenByDescending { it.refreshRateHz == 60 }
+                        .thenByDescending { it.refreshRateHz >= 60 }
                         .thenByDescending { it.width * it.height }
                         .thenByDescending { it.refreshRateHz }
                 }

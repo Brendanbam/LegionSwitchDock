@@ -1108,7 +1108,12 @@ private fun SteamControllerSection() {
     val status by com.legion.switchdock.controller.SteamControllerDriver.status.collectAsState()
     var enabled by remember { mutableStateOf(prefs.steamControllerEnabled) }
     var mouse by remember { mutableStateOf(prefs.steamTouchpadMouse) }
+    LaunchedEffect(Unit) { com.legion.switchdock.controller.SteamControllerDriver.start(context) }
     Text(text = status, color = Color(0xFF4ADE80), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+    OutlinedButton(
+        onClick = { com.legion.switchdock.controller.SteamControllerDriver.start(context) },
+        border = BorderStroke(1.dp, Color(0xFF374151))
+    ) { Text("Check again", color = Color.White) }
     ToggleRow(
         title = "Use as a gamepad in every app",
         subtitle = "Turns off the controller's mouse/keyboard mode and adds a standard controller (needs Shizuku). Quick access (…) opens the dock's quick menu.",

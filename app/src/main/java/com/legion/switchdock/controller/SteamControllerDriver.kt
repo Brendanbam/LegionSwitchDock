@@ -54,7 +54,10 @@ object SteamControllerDriver {
     private val opened = HashMap<String, PuckConnection>()
     private var receiverRegistered = false
 
-    fun isSteamDevice(d: UsbDevice) = d.vendorId == VALVE && (d.productId == PUCK || d.productId == PUCK_2 || d.productId == WIRED)
+    // Any Valve device: the known puck/controller IDs, plus newer revisions with other product IDs
+    fun isSteamDevice(d: UsbDevice) = d.vendorId == VALVE
+
+    private fun isCabled(d: UsbDevice) = d.productId == WIRED || (d.productId != PUCK && d.productId != PUCK_2 && d.interfaceCount < 3)
 
     /** Call from the dock service and when the puck is plugged in. Safe to call repeatedly. */
     fun start(context: Context) {
@@ -94,7 +97,9 @@ object SteamControllerDriver {
         // Forget connections whose device is gone
         opened.keys.filter { name -> devices.none { it.deviceName == name } }.forEach { close(it) }
         if (devices.isEmpty()) {
-            _status.value = "Plug the Steam Controller Puck into the dock"
+            val seen = usb.deviceList.values.joinToString { "%04x:%04x %s".format(it.vendorId, it.productId, it.productName ?: "") .trim() }
+            _status.value = if (seen.isEmpty()) "No USB devices seen — plug the puck into the dock (or straight into the tablet)"
+                else "Puck not found. USB devices seen: $seen"
             return
         }
         if (!prefs.steamControllerEnabled) {
@@ -126,10 +131,10 @@ object SteamControllerDriver {
             val pc = PuckConnection(ctx, device, conn)
             if (pc.begin(shell)) {
                 opened[device.deviceName] = pc
-                _status.value = if (device.productId == WIRED) "Connected by cable" else "Puck ready — turn the controller on"
+                _status.value = if (isCabled(device)) "Connected by cable" else "Puck ready — turn the controller on"
             } else {
                 conn.close()
-                _status.value = "This puck didn't respond as expected"
+                _status.value = "Puck %04x:%04x has no controller slots I recognise (%d interfaces)".format(device.vendorId, device.productId, device.interfaceCount)
             }
         }
     }
@@ -155,7 +160,7 @@ object SteamControllerDriver {
             for (i in 0 until device.interfaceCount) {
                 val intf = device.getInterface(i)
                 if (intf.interfaceClass != UsbConstants.USB_CLASS_HID) continue
-                if (device.productId == WIRED) {
+                if (isCabled(device)) {
                     // Skip the plain keyboard/mouse (lizard) interfaces
                     if (intf.interfaceSubclass == 1 && (intf.interfaceProtocol == 1 || intf.interfaceProtocol == 2)) continue
                 } else if (intf.id !in 2..5) continue
@@ -166,7 +171,7 @@ object SteamControllerDriver {
                 }
                 if (epIn == null) continue
                 if (!conn.claimInterface(intf, true)) continue
-                slots += Slot(ctx, conn, intf, epIn, shell, wired = device.productId == WIRED, number = slots.size + 1)
+                slots += Slot(ctx, conn, intf, epIn, shell, wired = isCabled(device), number = slots.size + 1)
             }
             slots.forEach { it.start() }
             return slots.isNotEmpty()
