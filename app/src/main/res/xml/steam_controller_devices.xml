@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Valve Steam Controller (2026): puck, newer puck, USB-C cable -->
+    <usb-device vendor-id="10462" product-id="4868" />
+    <usb-device vendor-id="10462" product-id="4869" />
+    <usb-device vendor-id="10462" product-id="4866" />
+</resources>

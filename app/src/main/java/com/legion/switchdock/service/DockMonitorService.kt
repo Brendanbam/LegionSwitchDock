@@ -138,6 +138,7 @@ class DockMonitorService : Service() {
         displayManager.registerDisplayListener(displayListener, mainHandler)
         ShizukuHelper.init(this)
         ShizukuHelper.ensureBound(this)
+        com.legion.switchdock.controller.SteamControllerDriver.start(this)
         registerReceiver(powerReceiver, android.content.IntentFilter().apply {
             addAction(Intent.ACTION_POWER_CONNECTED)
             addAction(Intent.ACTION_POWER_DISCONNECTED)

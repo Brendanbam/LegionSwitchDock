@@ -111,6 +111,16 @@ class DockPreferences(private val context: Context) {
      * How big apps look in the glasses, as a percent of the full view (100 = edge to edge).
      * Below 100, apps open in a centered window with black around it, which reads as see-through.
      */
+    /** Steam Controller (2026) support through the puck: virtual gamepad via Shizuku. */
+    var steamControllerEnabled: Boolean
+        get() = prefs.getBoolean("steam_controller_enabled", true)
+        set(value) = prefs.edit().putBoolean("steam_controller_enabled", value).apply()
+
+    /** Right touchpad moves a mouse pointer (left pad scrolls, pad clicks = mouse clicks). */
+    var steamTouchpadMouse: Boolean
+        get() = prefs.getBoolean("steam_touchpad_mouse", true)
+        set(value) = prefs.edit().putBoolean("steam_touchpad_mouse", value).apply()
+
     var glassesScreenSizePct: Int
         get() = prefs.getInt(KEY_GLASSES_SCREEN_SIZE, 100)
         set(value) = prefs.edit().putInt(KEY_GLASSES_SCREEN_SIZE, value.coerceIn(50, 100)).apply()

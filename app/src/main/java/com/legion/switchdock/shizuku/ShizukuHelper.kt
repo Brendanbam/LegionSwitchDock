@@ -21,7 +21,75 @@ enum class ShizukuStatus {
 @Keep
 class ShizukuShellService : IShellService.Stub() {
     override fun destroy() {
+        uhidDestroyAll()
         exitProcess(0)
+    }
+
+    // ---- Virtual controllers (/dev/uhid). The shell user may create HID devices that every app sees. ----
+    private class Uhid(val file: java.io.RandomAccessFile) { @Volatile var open = true }
+    private val uhids = java.util.concurrent.ConcurrentHashMap<Int, Uhid>()
+    private val nextHandle = java.util.concurrent.atomic.AtomicInteger(1)
+    @Volatile private var error = ""
+
+    override fun lastError(): String = error
+
+    override fun uhidCreate(name: String, vendor: Int, product: Int, descriptor: ByteArray): Int {
+        return try {
+            val file = java.io.RandomAccessFile("/dev/uhid", "rw")
+            val handle = nextHandle.getAndIncrement()
+            val ev = java.nio.ByteBuffer.allocate(4 + 276 + 4096).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            ev.putInt(0, 11) // UHID_CREATE2
+            val n = name.toByteArray().copyOf(127.coerceAtMost(name.toByteArray().size))
+            ev.position(4); ev.put(n)
+            val uniq = "legion-$handle".toByteArray()
+            ev.position(4 + 192); ev.put(uniq)
+            ev.putShort(4 + 256, descriptor.size.toShort())
+            ev.putShort(4 + 258, 0x03) // BUS_USB
+            ev.putInt(4 + 260, vendor)
+            ev.putInt(4 + 264, product)
+            ev.putInt(4 + 268, 1)
+            ev.putInt(4 + 272, 0)
+            ev.position(4 + 276); ev.put(descriptor)
+            file.write(ev.array(), 0, ev.capacity())
+            val dev = Uhid(file)
+            uhids[handle] = dev
+            // Drain the events the kernel sends back (start/open/close) so its queue never fills
+            Thread {
+                val buf = ByteArray(4380)
+                try { while (dev.open) { if (file.read(buf) <= 0) break } } catch (_: Exception) {}
+            }.apply { isDaemon = true }.start()
+            handle
+        } catch (e: Exception) {
+            error = "${e.javaClass.simpleName}: ${e.message}"
+            -1
+        }
+    }
+
+    override fun uhidInput(handle: Int, report: ByteArray) {
+        val dev = uhids[handle] ?: return
+        try {
+            val ev = java.nio.ByteBuffer.allocate(6 + report.size).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            ev.putInt(12) // UHID_INPUT2
+            ev.putShort(report.size.toShort())
+            ev.put(report)
+            synchronized(dev) { dev.file.write(ev.array()) }
+        } catch (e: Exception) {
+            error = "${e.javaClass.simpleName}: ${e.message}"
+        }
+    }
+
+    override fun uhidDestroy(handle: Int) {
+        val dev = uhids.remove(handle) ?: return
+        dev.open = false
+        runCatching {
+            val ev = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt(1) // UHID_DESTROY
+            synchronized(dev) { dev.file.write(ev.array()) }
+        }
+        runCatching { dev.file.close() }
+    }
+
+    override fun uhidDestroyAll() {
+        uhids.keys.toList().forEach { uhidDestroy(it) }
     }
 
     override fun exec(command: String): Int {
@@ -117,7 +185,7 @@ object ShizukuHelper {
             .daemon(false)
             .processNameSuffix("shizuku_shell")
             .debuggable(false)
-            .version(1)
+            .version(2)
 
         runCatching {
             Shizuku.bindUserService(args, connection)
@@ -126,6 +194,15 @@ object ShizukuHelper {
             isBinding = false
         }
     }
+
+    /** The Shizuku shell service once it is bound (starts binding if needed), or null. */
+    fun shellServiceOrNull(context: Context): IShellService? {
+        val svc = shellService
+        if (svc == null) ensureBound(context)
+        return svc
+    }
+
+    fun markServiceDead() { shellService = null }
 
     /**
      * Runs a shell command as Shizuku (shell UID) in the background. Returns true if the command

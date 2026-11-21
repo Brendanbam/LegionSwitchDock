@@ -89,6 +89,7 @@ import com.legion.switchdock.shizuku.ShizukuHelper
 import com.legion.switchdock.shizuku.ShizukuStatus
 import com.legion.switchdock.streaming.ArtemisBoostManager
 import kotlinx.coroutines.delay
+import androidx.compose.runtime.collectAsState
 import rikka.shizuku.Shizuku
 import java.util.Locale
 
@@ -1029,6 +1030,10 @@ private fun SetupDashboardScreen(
             }
         }
 
+        SectionCard(title = "Steam Controller (Puck)") {
+            SteamControllerSection()
+        }
+
         // Optional Shizuku Power Tweaks
         SectionCard(title = "Optional Shizuku Power Tweaks") {
             val shizukuText = when (shizukuStatus) {
@@ -1093,6 +1098,30 @@ private fun SectionCard(
             content()
         }
     }
+}
+
+/** Steam Controller (2026) through its puck: works as a normal gamepad in every app (needs Shizuku). */
+@Composable
+private fun SteamControllerSection() {
+    val context = LocalContext.current
+    val prefs = remember { DockPreferences(context) }
+    val status by com.legion.switchdock.controller.SteamControllerDriver.status.collectAsState()
+    var enabled by remember { mutableStateOf(prefs.steamControllerEnabled) }
+    var mouse by remember { mutableStateOf(prefs.steamTouchpadMouse) }
+    Text(text = status, color = Color(0xFF4ADE80), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+    ToggleRow(
+        title = "Use as a gamepad in every app",
+        subtitle = "Turns off the controller's mouse/keyboard mode and adds a standard controller (needs Shizuku). Quick access (…) opens the dock's quick menu.",
+        checked = enabled
+    ) {
+        enabled = it; prefs.steamControllerEnabled = it
+        com.legion.switchdock.controller.SteamControllerDriver.rescan()
+    }
+    ToggleRow(
+        title = "Right touchpad as a mouse",
+        subtitle = "Right pad moves the pointer, left pad scrolls. Click the right pad to click, the left pad to right-click.",
+        checked = mouse
+    ) { mouse = it; prefs.steamTouchpadMouse = it }
 }
 
 /** Glasses screen size: how much of the glasses view apps fill. Smaller = a smaller screen floating further away. */
