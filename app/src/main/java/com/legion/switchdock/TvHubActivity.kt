@@ -8,6 +8,8 @@ import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import android.view.Display
@@ -75,6 +77,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
@@ -169,6 +174,7 @@ class TvHubActivity : ComponentActivity() {
 
         setContent {
             MaterialTheme {
+                Box(Modifier.fillMaxSize()) {
                 SwitchTvHubScreen(
                     targetDisplayId = targetDisplayId,
                     bluetooth = bluetoothHub,
@@ -183,8 +189,94 @@ class TvHubActivity : ComponentActivity() {
                     },
                     onExitHub = { finish() }
                 )
+                if (cursorVisible.value) TouchpadCursor(cursorPos.value)
+                }
             }
         }
+        window.decorView.setOnCapturedPointerListener { _, e -> handleCapturedPointer(e) }
+    }
+
+    /* ---------------- DualSense touchpad cursor ----------------
+       While the hub has focus it captures the controller touchpad (and any mouse) and draws its own
+       cursor on the TV / glasses. Swipe to move; tap or click the pad to select what's under it. */
+
+    private val cursorPos = mutableStateOf(Offset(-1f, -1f))
+    private val cursorVisible = mutableStateOf(false)
+    private val cursorHandler = Handler(Looper.getMainLooper())
+    private val hideCursor = Runnable { cursorVisible.value = false }
+    private var padLastX = 0f
+    private var padLastY = 0f
+    private var padDownTime = 0L
+    private var padTravel = 0f
+    private var padPressed = false
+
+    private fun moveCursor(dx: Float, dy: Float) {
+        val root = window.decorView
+        if (root.width == 0) return
+        var p = cursorPos.value
+        if (p.x < 0) p = Offset(root.width / 2f, root.height / 2f)
+        cursorPos.value = Offset((p.x + dx).coerceIn(0f, root.width - 1f), (p.y + dy).coerceIn(0f, root.height - 1f))
+        showCursor()
+    }
+
+    private fun showCursor() {
+        cursorVisible.value = true
+        cursorHandler.removeCallbacks(hideCursor)
+        cursorHandler.postDelayed(hideCursor, 3500L)
+    }
+
+    /** Taps the hub at the cursor, so whatever tile or button is under it reacts like a touch. */
+    private fun clickAtCursor() {
+        val p = cursorPos.value
+        if (p.x < 0) return
+        showCursor()
+        val t = SystemClock.uptimeMillis()
+        val down = MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, p.x, p.y, 0).apply { source = InputDevice.SOURCE_TOUCHSCREEN }
+        val up = MotionEvent.obtain(t, t + 40, MotionEvent.ACTION_UP, p.x, p.y, 0).apply { source = InputDevice.SOURCE_TOUCHSCREEN }
+        window.decorView.dispatchTouchEvent(down)
+        window.decorView.dispatchTouchEvent(up)
+        down.recycle(); up.recycle()
+    }
+
+    private fun handleCapturedPointer(e: MotionEvent): Boolean {
+        val density = resources.displayMetrics.density
+        // Mouse: relative movement
+        if (e.isFromSource(InputDevice.SOURCE_MOUSE_RELATIVE)) {
+            if (e.actionMasked == MotionEvent.ACTION_MOVE) moveCursor(e.x, e.y)
+            if (e.actionMasked == MotionEvent.ACTION_BUTTON_PRESS && e.actionButton == MotionEvent.BUTTON_PRIMARY) clickAtCursor()
+            return true
+        }
+        if (!e.isFromSource(InputDevice.SOURCE_TOUCHPAD)) return false
+        val range = e.device?.getMotionRange(MotionEvent.AXIS_X, e.source)?.range?.takeIf { it > 0 } ?: 1920f
+        // Crossing the whole pad moves the cursor about 1.3 screen widths
+        val scale = window.decorView.width / range * 1.3f
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                padLastX = e.x; padLastY = e.y
+                padDownTime = e.eventTime; padTravel = 0f; padPressed = false
+                showCursor()
+            }
+            MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_POINTER_UP -> {
+                // Re-anchor so adding / lifting a finger doesn't make the cursor jump
+                padLastX = e.getX(0); padLastY = e.getY(0)
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = (e.getX(0) - padLastX) * scale
+                val dy = (e.getY(0) - padLastY) * scale
+                padLastX = e.getX(0); padLastY = e.getY(0)
+                padTravel += kotlin.math.abs(dx) + kotlin.math.abs(dy)
+                moveCursor(dx, dy)
+            }
+            MotionEvent.ACTION_BUTTON_PRESS -> {
+                // Pressing the pad down clicks
+                if (e.actionButton == MotionEvent.BUTTON_PRIMARY) { padPressed = true; clickAtCursor() }
+            }
+            MotionEvent.ACTION_UP -> {
+                // A quick light tap also clicks (unless the pad was pressed down during this touch)
+                if (!padPressed && e.eventTime - padDownTime < 220 && padTravel < 14 * density) clickAtCursor()
+            }
+        }
+        return true
     }
 
     override fun onResume() {
@@ -217,6 +309,10 @@ class TvHubActivity : ComponentActivity() {
         if (hasFocus) {
             hideSystemBars()
             window.decorView.requestFocus()
+            // Touchpad cursor: the hub owns the controller touchpad while it's on screen
+            window.decorView.post { runCatching { window.decorView.requestPointerCapture() } }
+        } else {
+            cursorVisible.value = false
         }
     }
 
@@ -450,6 +546,19 @@ class TvHubActivity : ComponentActivity() {
             return true
         }
     }
+}
+
+/** The hub's touchpad cursor: a white dot with a cyan ring, drawn above everything. */
+@Composable
+private fun TouchpadCursor(pos: Offset) {
+    Box(
+        modifier = Modifier
+            .offset { val r = 14.dp.roundToPx(); IntOffset(pos.x.roundToInt() - r, pos.y.roundToInt() - r) }
+            .size(28.dp)
+            .clip(RoundedCornerShape(50))
+            .background(Color.White.copy(alpha = 0.92f))
+            .border(BorderStroke(3.dp, Color(0xFF00E5FF)), RoundedCornerShape(50))
+    )
 }
 
 @Composable

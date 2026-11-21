@@ -13,10 +13,12 @@ object SwitchAudioFeedback {
     private val executor = Executors.newSingleThreadExecutor()
     private const val SAMPLE_RATE = 44100
 
-    private val movePcm by lazy { generateTone(freqStart = 520.0, freqEnd = 660.0, durationMs = 22, amplitude = 0.14) }
-    private val selectPcm by lazy { generateTone(freqStart = 760.0, freqEnd = 1040.0, durationMs = 45, amplitude = 0.18) }
-    private val backPcm by lazy { generateTone(freqStart = 540.0, freqEnd = 370.0, durationMs = 36, amplitude = 0.15) }
-    private val menuPcm by lazy { generateTone(freqStart = 640.0, freqEnd = 880.0, durationMs = 38, amplitude = 0.16) }
+    // Short Switch-style "tick" when moving between tiles, brighter chirps for select / menu, a falling tone for back.
+    // Long and loud enough to hear in glasses speakers and TVs (the old 22 ms move tick was nearly inaudible).
+    private val movePcm by lazy { generateTone(freqStart = 880.0, freqEnd = 1180.0, durationMs = 55, amplitude = 0.32) }
+    private val selectPcm by lazy { generateTone(freqStart = 760.0, freqEnd = 1240.0, durationMs = 80, amplitude = 0.36) }
+    private val backPcm by lazy { generateTone(freqStart = 620.0, freqEnd = 380.0, durationMs = 70, amplitude = 0.32) }
+    private val menuPcm by lazy { generateTone(freqStart = 660.0, freqEnd = 990.0, durationMs = 70, amplitude = 0.34) }
 
     fun playMove(context: Context) = playIfEnabled(context, movePcm)
     fun playSelect(context: Context) = playIfEnabled(context, selectPcm)
@@ -31,7 +33,8 @@ object SwitchAudioFeedback {
                 val track = AudioTrack.Builder()
                     .setAudioAttributes(
                         AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                            // Game audio follows the media volume, so a muted / silent-mode tablet still plays hub sounds
+                            .setUsage(AudioAttributes.USAGE_GAME)
                             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                             .build()
                     )
@@ -72,7 +75,8 @@ object SwitchAudioFeedback {
             val decay = (1.0 - t) * (1.0 - t)
             val env = attack * decay
             phase += 2.0 * PI * freq / SAMPLE_RATE
-            val sample = (sin(phase) * amplitude * env * Short.MAX_VALUE).toInt()
+            // A little second harmonic makes it read as a "tick" rather than a pure beep
+            val sample = ((sin(phase) + 0.35 * sin(2 * phase)) / 1.35 * amplitude * env * Short.MAX_VALUE).toInt()
             buffer[i] = sample.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
         }
         return buffer
