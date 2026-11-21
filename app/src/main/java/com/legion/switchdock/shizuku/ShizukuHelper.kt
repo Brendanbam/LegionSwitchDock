@@ -277,6 +277,11 @@ object ShizukuHelper {
         runCommand(context, "am force-stop $packageName")
     }
 
+    /** Clears every resolution the dock app (or anything else) saved, so each screen uses its own default. */
+    fun resetDisplayModes(context: Context): Boolean =
+        runCommand(context, "cmd display clear-user-preferred-display-mode; " +
+            "for i in 0 1 2 3 4 5 6 7 8 9 10 11 12; do cmd display clear-user-preferred-display-mode \$i; done")
+
     fun setExternalDisplayMode(
         context: Context,
         displayId: Int,

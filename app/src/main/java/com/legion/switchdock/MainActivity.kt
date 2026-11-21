@@ -750,6 +750,16 @@ private fun SetupDashboardScreen(
 
         // Dock Status & HDMI Resolution / FPS Unlocker Card
         SectionCard(title = "Display Status & HDMI Resolution / FPS Unlocker") {
+            val resetCtx = LocalContext.current
+            OutlinedButton(
+                onClick = {
+                    val ok = ShizukuHelper.resetDisplayModes(resetCtx)
+                    android.widget.Toast.makeText(resetCtx,
+                        if (ok) "Saved resolutions cleared — unplug and replug the TV" else "Needs Shizuku running",
+                        android.widget.Toast.LENGTH_LONG).show()
+                },
+                border = BorderStroke(1.dp, Color(0xFF374151))
+            ) { Text("Reset TV / glasses resolution", color = Color.White) }
             val statusColor = if (externalDisplay != null) Color(0xFF4ADE80) else Color(0xFF9BA3B4)
             val statusText = if (externalDisplay != null) {
                 val how = if (externalDisplay.profileAutoDetected) "auto-detected" else "set manually"

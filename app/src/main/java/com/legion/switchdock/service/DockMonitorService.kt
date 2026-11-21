@@ -182,8 +182,25 @@ class DockMonitorService : Service() {
         }
     }
 
+    /** v1.0.48 and earlier could save 4096×2160 for a TV, which some TVs won't show at all. Clear it once. */
+    private fun resetSavedModesOnce() {
+        val store = getSharedPreferences("legion_restore_state", Context.MODE_PRIVATE)
+        if (store.getBoolean("reset_modes_v50", false)) return
+        if (ShizukuHelper.getStatus() != ShizukuStatus.READY) return
+        if (ShizukuHelper.resetDisplayModes(this)) store.edit().putBoolean("reset_modes_v50", true).apply()
+    }
+
     private fun evaluateDisplays(autoLaunch: Boolean) {
         undoForcedResizableOnce()
+        resetSavedModesOnce()
+        // Still showing cinema 4K on a TV: clear the saved mode for this screen so the 3840×2160 pick takes over
+        ExternalDisplayHelper.findExternalDisplay(this)?.let { ext ->
+            if (ext.profile == com.legion.switchdock.display.DisplayProfile.TV && ext.width == 4096) {
+                ShizukuHelper.runCommand(this, "cmd display clear-user-preferred-display-mode ${ext.displayId}")
+                lastModeSetMs.remove(ext.name)
+                mainHandler.postDelayed({ ExternalDisplayHelper.findExternalDisplay(this)?.let { sendModeOnce(it) } }, 1500L)
+            }
+        }
         val external = ExternalDisplayHelper.findExternalDisplay(this)
         if (external != null) {
             val isNewConnection = activeExternalDisplayId != external.displayId ||
