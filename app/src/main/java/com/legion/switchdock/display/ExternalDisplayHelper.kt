@@ -195,13 +195,6 @@ object ExternalDisplayHelper {
         if (info == null || !info.isGlasses || info.displayId != displayId || pct >= 100) {
             return launchIntentOnDisplay(context, intent, displayId)
         }
-        // Freeform windows must be allowed (and games allowed to be resized) for a smaller window
-        if (ShizukuHelper.getStatus() == ShizukuStatus.READY) {
-            ShizukuHelper.runCommand(
-                context,
-                "settings put global enable_freeform_support 1 ; settings put global force_resizable_activities 1"
-            )
-        }
         val dm = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
         val display = dm.getDisplay(displayId) ?: return launchIntentOnDisplay(context, intent, displayId)
         val size = android.graphics.Point()

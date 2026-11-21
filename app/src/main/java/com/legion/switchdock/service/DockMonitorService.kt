@@ -35,42 +35,42 @@ class DockMonitorService : Service() {
     private var activeProfile: DisplayProfile? = null
     private var lastAnnouncedMode: String? = null
 
-    // Display-mode auto-set: keeps checking after a plug-in until the TV / glasses are really in
-    // the saved mode. Covers Shizuku being started after the cable went in (e.g. after a reboot)
-    // and the system ignoring the first request. Stops once the mode sticks, so it never fights
-    // an app (like Artemis) that picks its own refresh rate later.
+    // Display-mode auto-set. Sends the saved resolution / refresh rate ONCE per plug-in. If Shizuku
+    // isn't running yet when the cable goes in (e.g. after a reboot), it waits for Shizuku and then
+    // sends it once. It never re-sends: repeated mode switches made some glasses reconnect in a loop
+    // and could crash the tablet.
     private var modeCheckStartedMs = 0L
-    private var lastModeRequestMs = 0L
-    private var modeRequests = 0
+    private var modePending = false
+    private val lastModeSetMs = mutableMapOf<String, Long>()
     private val modeCheckRunnable = object : Runnable {
         override fun run() {
-            val external = ExternalDisplayHelper.findExternalDisplay(this@DockMonitorService) ?: return
-            val target = ExternalDisplayHelper.resolvePreferredMode(this@DockMonitorService, external) ?: return
-            val isActive = external.width == target.width && external.height == target.height &&
-                external.refreshRateHz == target.refreshRateHz
-            if (isActive) return
-            val now = System.currentTimeMillis()
-            // Give up after 10 minutes, or 6 requests that Shizuku carried out
-            if (now - modeCheckStartedMs > 10 * 60_000L || modeRequests >= 6) return
-            if (ShizukuHelper.getStatus() == ShizukuStatus.READY && now - lastModeRequestMs > 5_000L) {
-                ShizukuHelper.ensureBound(this@DockMonitorService)
-                if (ShizukuHelper.setExternalDisplayMode(
-                        this@DockMonitorService, external.displayId, target.width, target.height, target.refreshRateExact
-                    )
-                ) {
-                    lastModeRequestMs = now
-                    modeRequests++
-                }
+            if (!modePending) return
+            val external = ExternalDisplayHelper.findExternalDisplay(this@DockMonitorService) ?: run { modePending = false; return }
+            if (System.currentTimeMillis() - modeCheckStartedMs > 10 * 60_000L) { modePending = false; return }
+            if (ShizukuHelper.getStatus() == ShizukuStatus.READY) {
+                modePending = false
+                sendModeOnce(external)
+                return
             }
             mainHandler.postDelayed(this, 3_000L)
         }
     }
 
+    /** Sends the saved mode, at most once a minute per display (however often it reconnects). */
+    private fun sendModeOnce(external: com.legion.switchdock.display.ExternalDisplayInfo): Boolean {
+        val target = ExternalDisplayHelper.resolvePreferredMode(this, external) ?: return false
+        if (target.width == external.width && target.height == external.height && target.refreshRateHz == external.refreshRateHz) return false
+        val now = System.currentTimeMillis()
+        val last = lastModeSetMs[external.name] ?: 0L
+        if (now - last < 60_000L) return false
+        lastModeSetMs[external.name] = now
+        return ShizukuHelper.setExternalDisplayMode(this, external.displayId, target.width, target.height, target.refreshRateExact)
+    }
+
     private fun startModeCheck() {
         mainHandler.removeCallbacks(modeCheckRunnable)
         modeCheckStartedMs = System.currentTimeMillis()
-        lastModeRequestMs = System.currentTimeMillis()
-        modeRequests = 0
+        modePending = true
         mainHandler.postDelayed(modeCheckRunnable, 3_000L)
     }
 
@@ -161,7 +161,21 @@ class DockMonitorService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    /**
+     * Undo a system setting v1.0.45 turned on for the glasses screen-size feature
+     * ("Force activities to be resizable"). Left on, it can make Lenovo's external display mode unstable.
+     */
+    private fun undoForcedResizableOnce() {
+        val store = getSharedPreferences("legion_restore_state", Context.MODE_PRIVATE)
+        if (store.getBoolean("undid_force_resizable", false)) return
+        if (ShizukuHelper.getStatus() != ShizukuStatus.READY) return
+        if (ShizukuHelper.runCommand(this, "settings put global force_resizable_activities 0")) {
+            store.edit().putBoolean("undid_force_resizable", true).apply()
+        }
+    }
+
     private fun evaluateDisplays(autoLaunch: Boolean) {
+        undoForcedResizableOnce()
         val external = ExternalDisplayHelper.findExternalDisplay(this)
         if (external != null) {
             val isNewConnection = activeExternalDisplayId != external.displayId ||
@@ -195,13 +209,10 @@ class DockMonitorService : Service() {
     private fun applyProfileDisplayMode(external: com.legion.switchdock.display.ExternalDisplayInfo) {
         val target = ExternalDisplayHelper.resolvePreferredMode(this, external) ?: return
         val alreadyActive = target.modeId == external.activeModeId
-        if (!alreadyActive && ShizukuHelper.getStatus() == ShizukuStatus.READY) {
-            ShizukuHelper.setExternalDisplayMode(
-                this, external.displayId, target.width, target.height, target.refreshRateExact
-            )
+        if (!alreadyActive) {
+            if (ShizukuHelper.getStatus() == ShizukuStatus.READY) sendModeOnce(external)
+            else startModeCheck() // send once when Shizuku starts
         }
-        // Confirm it took, and catch Shizuku coming up later
-        if (!alreadyActive) startModeCheck()
         val announceKey = "${external.name}|${target.key}"
         if (announceKey != lastAnnouncedMode) {
             lastAnnouncedMode = announceKey
