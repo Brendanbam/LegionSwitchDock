@@ -107,6 +107,14 @@ class DockPreferences(private val context: Context) {
         get() = prefs.getInt(KEY_GLASSES_EDGE_MARGIN, 8)
         set(value) = prefs.edit().putInt(KEY_GLASSES_EDGE_MARGIN, value.coerceIn(0, 20)).apply()
 
+    /**
+     * How big apps look in the glasses, as a percent of the full view (100 = edge to edge).
+     * Below 100, apps open in a centered window with black around it, which reads as see-through.
+     */
+    var glassesScreenSizePct: Int
+        get() = prefs.getInt(KEY_GLASSES_SCREEN_SIZE, 100)
+        set(value) = prefs.edit().putInt(KEY_GLASSES_SCREEN_SIZE, value.coerceIn(50, 100)).apply()
+
     var glassesBatteryWarning: Boolean
         get() = prefs.getBoolean(KEY_GLASSES_BATTERY_WARNING, true)
         set(value) = prefs.edit().putBoolean(KEY_GLASSES_BATTERY_WARNING, value).apply()
@@ -175,6 +183,8 @@ class DockPreferences(private val context: Context) {
         private const val KEY_GLASSES_THEME_ID = "glasses_theme_id"
         private const val KEY_DISPLAY_TYPE_PREFIX = "display_type_override::"
         private const val KEY_GLASSES_EDGE_MARGIN = "glasses_edge_margin_pct"
+        private const val KEY_GLASSES_SCREEN_SIZE = "glasses_screen_size_pct"
+        val GLASSES_SCREEN_SIZES = listOf(100, 90, 80, 70, 60)
         private const val KEY_GLASSES_BATTERY_WARNING = "glasses_battery_warning"
     }
 }

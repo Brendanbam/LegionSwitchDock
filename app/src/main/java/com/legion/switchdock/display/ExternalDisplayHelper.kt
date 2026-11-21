@@ -7,6 +7,8 @@ import android.graphics.Rect
 import android.hardware.display.DisplayManager
 import android.view.Display
 import com.legion.switchdock.data.DockPreferences
+import com.legion.switchdock.shizuku.ShizukuHelper
+import com.legion.switchdock.shizuku.ShizukuStatus
 import kotlin.math.roundToInt
 
 /** What kind of screen is plugged into the USB-C port. Each profile gets its own menu, pins, theme and display mode. */
@@ -179,6 +181,48 @@ object ExternalDisplayHelper {
             Intent.FLAG_ACTIVITY_NEW_TASK or
                 Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
         )
-        return launchIntentOnDisplay(context, launchIntent, displayId)
+        return launchAppOnDisplay(context, launchIntent, displayId)
+    }
+
+    /**
+     * Opens an app on the TV / glasses. On the glasses with a screen size below 100%, the app opens
+     * in a centered window of that size; the black around it reads as see-through, so the picture
+     * looks smaller and further away. Otherwise it opens full screen as usual.
+     */
+    fun launchAppOnDisplay(context: Context, intent: Intent, displayId: Int): Boolean {
+        val info = findExternalDisplay(context)
+        val pct = DockPreferences(context).glassesScreenSizePct
+        if (info == null || !info.isGlasses || info.displayId != displayId || pct >= 100) {
+            return launchIntentOnDisplay(context, intent, displayId)
+        }
+        // Freeform windows must be allowed (and games allowed to be resized) for a smaller window
+        if (ShizukuHelper.getStatus() == ShizukuStatus.READY) {
+            ShizukuHelper.runCommand(
+                context,
+                "settings put global enable_freeform_support 1 ; settings put global force_resizable_activities 1"
+            )
+        }
+        val dm = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+        val display = dm.getDisplay(displayId) ?: return launchIntentOnDisplay(context, intent, displayId)
+        val size = android.graphics.Point()
+        @Suppress("DEPRECATION") display.getRealSize(size)
+        val w = size.x * pct / 100
+        val h = size.y * pct / 100
+        val left = (size.x - w) / 2
+        val top = (size.y - h) / 2
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val ok = runCatching {
+            val options = ActivityOptions.makeBasic().apply {
+                launchDisplayId = displayId
+                setLaunchBounds(Rect(left, top, left + w, top + h))
+            }
+            runCatching {
+                ActivityOptions::class.java.getMethod("setLaunchWindowingMode", Int::class.javaPrimitiveType)
+                    .invoke(options, 5) // 5 = WINDOWING_MODE_FREEFORM
+            }
+            context.startActivity(intent, options.toBundle())
+            true
+        }.getOrDefault(false)
+        return ok || launchIntentOnDisplay(context, intent, displayId)
     }
 }

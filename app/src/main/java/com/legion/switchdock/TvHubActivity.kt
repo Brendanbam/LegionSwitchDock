@@ -487,7 +487,7 @@ class TvHubActivity : ComponentActivity() {
 
         if (app.packageName == AppRepository.PLAY_PC_ID) {
             ArtemisBoostManager.onAppLaunched(this, AppRepository.ARTEMIS_LEGION_PACKAGE)
-            ExternalDisplayHelper.launchIntentOnDisplay(this, AppRepository.playPcIntent(), externalId)
+            ExternalDisplayHelper.launchAppOnDisplay(this, AppRepository.playPcIntent(), externalId)
             return
         }
 
@@ -675,7 +675,7 @@ private fun SwitchTvHubScreen(
                 }
 
                 showQuickMenu -> {
-                    val menuCount = 11
+                    val menuCount = 12
                     when (cmd) {
                         ControllerCommand.UP, ControllerCommand.LEFT, ControllerCommand.L1_PREV -> {
                             selectedMenuIndex = (selectedMenuIndex - 1 + menuCount) % menuCount
@@ -721,7 +721,8 @@ private fun SwitchTvHubScreen(
                                     prefs.setThemeId(displayProfile, nextTheme.id)
                                 }
                                 9 -> triggerSleepMode()
-                                10 -> showQuickMenu = false
+                                10 -> cycleGlassesScreenSize()
+                                11 -> showQuickMenu = false
                             }
                             menuStateTick++
                         }
@@ -918,7 +919,10 @@ private fun SwitchTvHubScreen(
             )
     ) {
         val configuration = LocalConfiguration.current
-        val glassesMarginFraction = if (isGlasses) prefs.glassesEdgeMarginPct / 100f else 0f
+        // Glasses: the edge margin, or the smaller screen size if that leaves more room around the hub
+        val glassesMarginFraction = if (isGlasses) {
+            maxOf(prefs.glassesEdgeMarginPct / 100f, (100 - screenSizeTick.let { prefs.glassesScreenSizePct }) / 200f)
+        } else 0f
         val outerPadH = 44.dp + (configuration.screenWidthDp * glassesMarginFraction).dp
         val outerPadV = 28.dp + (configuration.screenHeightDp * glassesMarginFraction).dp
         Column(
@@ -1611,17 +1615,37 @@ private fun InHubQuickMenuOverlay(
                     }
                 )
                 QuickMenuButton(
-                    label = "Close Menu (B)",
+                    label = "Glasses Screen Size: ${screenSizeTick.let { prefs.glassesScreenSizePct }}% (Press A to Change)",
                     isSelected = (selectedIndex == 10),
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
                         onSelectIndex(10)
+                        cycleGlassesScreenSize()
+                    }
+                )
+                QuickMenuButton(
+                    label = "Close Menu (B)",
+                    isSelected = (selectedIndex == 11),
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        onSelectIndex(11)
                         onClose()
                     }
                 )
             }
         }
     }
+}
+
+/** Glasses screen size: 100 → 90 → 80 → 70 → 60 → 100. Applies to apps opened from now on. */
+private var screenSizeTick by mutableIntStateOf(0)
+private fun cycleGlassesScreenSize() {
+    val context = TvHubActivity.activeInstance ?: return
+    val prefs = DockPreferences(context)
+    val sizes = DockPreferences.GLASSES_SCREEN_SIZES
+    val next = sizes[(sizes.indexOf(prefs.glassesScreenSizePct).coerceAtLeast(0) + 1) % sizes.size]
+    prefs.glassesScreenSizePct = next
+    screenSizeTick++
 }
 
 @Composable

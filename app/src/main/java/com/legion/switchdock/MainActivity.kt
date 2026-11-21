@@ -808,6 +808,10 @@ private fun SetupDashboardScreen(
                 }
             }
 
+            if (externalDisplay?.isGlasses == true) {
+                GlassesScreenSizeRow()
+            }
+
             if (externalDisplay != null && externalDisplay.supportedModes.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
                 Text(
@@ -1086,6 +1090,32 @@ private fun SectionCard(
                 letterSpacing = 0.5.sp
             )
             content()
+        }
+    }
+}
+
+/** Glasses screen size: how much of the glasses view apps fill. Smaller = a smaller screen floating further away. */
+@Composable
+private fun GlassesScreenSizeRow() {
+    val context = LocalContext.current
+    val prefs = remember { DockPreferences(context) }
+    var size by remember { mutableStateOf(prefs.glassesScreenSizePct) }
+    Spacer(Modifier.height(6.dp))
+    Text(
+        text = "Glasses Screen Size: $size% (smaller looks further away; applies to apps you open next)",
+        color = Color.White,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.SemiBold
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        DockPreferences.GLASSES_SCREEN_SIZES.forEach { pct ->
+            val selected = pct == size
+            OutlinedButton(
+                onClick = { prefs.glassesScreenSizePct = pct; size = pct },
+                border = BorderStroke(1.dp, if (selected) Color(0xFF00E5FF) else Color(0xFF374151))
+            ) {
+                Text("$pct%", color = if (selected) Color(0xFF00E5FF) else Color.White)
+            }
         }
     }
 }
