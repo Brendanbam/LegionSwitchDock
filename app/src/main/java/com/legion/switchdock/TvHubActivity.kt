@@ -708,8 +708,7 @@ private fun SwitchTvHubScreen(
                                 7 -> {
                                     if (ShizukuHelper.getStatus() == ShizukuStatus.READY) {
                                         val next = !prefs.bypassChargingEnabled
-                                        prefs.bypassChargingEnabled = next
-                                        ShizukuHelper.setBypassCharging(context, next)
+                                        if (ShizukuHelper.setBypassCharging(context, next)) prefs.bypassChargingEnabled = next
                                     } else {
                                         showQuickMenu = false
                                         DockHealthMonitor.openBypassChargingSettings(context)
@@ -1587,9 +1586,11 @@ private fun InHubQuickMenuOverlay(
                     onClick = {
                         onSelectIndex(7)
                         if (ShizukuHelper.getStatus() == ShizukuStatus.READY) {
-                            bypassEnabled = !bypassEnabled
-                            prefs.bypassChargingEnabled = bypassEnabled
-                            ShizukuHelper.setBypassCharging(context, bypassEnabled)
+                            val next = !bypassEnabled
+                            if (ShizukuHelper.setBypassCharging(context, next)) {
+                                bypassEnabled = next
+                                prefs.bypassChargingEnabled = next
+                            }
                         } else {
                             onClose()
                             DockHealthMonitor.openBypassChargingSettings(context)

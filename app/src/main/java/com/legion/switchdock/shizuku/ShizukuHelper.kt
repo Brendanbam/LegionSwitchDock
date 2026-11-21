@@ -217,7 +217,29 @@ object ShizukuHelper {
      * Enables or disables Lenovo Legion Y700 (ZUI 15/16) Bypass Charging across all known
      * Lenovo system/secure/global settings keys via Shizuku (shell UID 2000).
      */
+    /** True while a charger (or a powered dock) is feeding the tablet. */
+    fun isOnExternalPower(context: Context): Boolean {
+        val battery = context.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+            ?: return false
+        return battery.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, 0) != 0
+    }
+
+    /**
+     * Bypass charging runs the tablet straight from the charger instead of the battery. It is only
+     * ever switched ON while a charger is connected: with XR glasses (which draw power from the
+     * tablet) and no charger, turning it on can shut the tablet off. Switching OFF always works.
+     */
     fun setBypassCharging(context: Context, enabled: Boolean): Boolean {
+        if (enabled && !isOnExternalPower(context)) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(
+                    context.applicationContext,
+                    "Bypass charging only turns on while a charger is connected",
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
+            return false
+        }
         val flag = if (enabled) "1" else "0"
         val cmd = listOf(
             "settings put system bypass_charging_enable $flag",

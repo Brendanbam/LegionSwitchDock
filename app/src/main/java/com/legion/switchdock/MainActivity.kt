@@ -390,18 +390,19 @@ private fun CompanionRoot(
             onToggleAutoBypassCharging = {
                 autoBypassCharging = it
                 prefs.autoBypassChargingOnDock = it
-                if (it && externalDisplay != null && ShizukuHelper.getStatus() == ShizukuStatus.READY) {
-                    ShizukuHelper.setBypassCharging(context, true)
+                if (it && externalDisplay != null && ShizukuHelper.getStatus() == ShizukuStatus.READY &&
+                    ShizukuHelper.setBypassCharging(context, true)) {
                     bypassChargingEnabled = true
                     prefs.bypassChargingEnabled = true
                 }
             },
             onToggleBypassChargingNow = {
                 val next = !bypassChargingEnabled
-                bypassChargingEnabled = next
-                prefs.bypassChargingEnabled = next
                 if (ShizukuHelper.getStatus() == ShizukuStatus.READY) {
-                    ShizukuHelper.setBypassCharging(context, next)
+                    if (ShizukuHelper.setBypassCharging(context, next)) {
+                        bypassChargingEnabled = next
+                        prefs.bypassChargingEnabled = next
+                    }
                 } else {
                     DockHealthMonitor.openBypassChargingSettings(context)
                 }

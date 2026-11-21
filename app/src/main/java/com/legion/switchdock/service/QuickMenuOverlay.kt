@@ -366,9 +366,8 @@ class QuickMenuOverlay(
         val bypassBtn = createMenuButton(displayContext, bypassLabel) {
             if (ShizukuHelper.getStatus() == ShizukuStatus.READY) {
                 val next = !prefs.bypassChargingEnabled
-                prefs.bypassChargingEnabled = next
-                ShizukuHelper.setBypassCharging(serviceContext, next)
-                bypassButtonRef?.text = "Bypass Charging: ${if (next) "ON" else "OFF"} (Tap to Toggle)"
+                if (ShizukuHelper.setBypassCharging(serviceContext, next)) prefs.bypassChargingEnabled = next
+                bypassButtonRef?.text = "Bypass Charging: ${if (prefs.bypassChargingEnabled) "ON" else "OFF"} (Tap to Toggle)"
             } else {
                 dismiss()
                 DockHealthMonitor.openBypassChargingSettings(serviceContext)

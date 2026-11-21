@@ -138,6 +138,12 @@ class DockMonitorService : Service() {
         displayManager.registerDisplayListener(displayListener, mainHandler)
         ShizukuHelper.init(this)
         ShizukuHelper.ensureBound(this)
+        registerReceiver(powerReceiver, android.content.IntentFilter().apply {
+            addAction(Intent.ACTION_POWER_CONNECTED)
+            addAction(Intent.ACTION_POWER_DISCONNECTED)
+        }, Context.RECEIVER_NOT_EXPORTED)
+        // Safety: never leave bypass charging on without a charger (e.g. after an older version turned it on)
+        if (!ShizukuHelper.isOnExternalPower(this)) mainHandler.postDelayed({ forceBypassOff() }, 1500L)
         evaluateDisplays(autoLaunch = false)
         mainHandler.postDelayed(controllerPollRunnable, 30_000L)
     }
@@ -154,6 +160,7 @@ class DockMonitorService : Service() {
     override fun onDestroy() {
         mainHandler.removeCallbacks(controllerPollRunnable)
         mainHandler.removeCallbacks(modeCheckRunnable)
+        runCatching { unregisterReceiver(powerReceiver) }
         displayManager.unregisterDisplayListener(displayListener)
         ArtemisBoostManager.setBoostActive(this, false)
         super.onDestroy()
@@ -248,11 +255,29 @@ class DockMonitorService : Service() {
         if (prefs.shizukuScreenOff) {
             ShizukuHelper.setInternalScreenBrightness(this, dimToZero = true)
         }
-        if (prefs.autoBypassChargingOnDock) {
+        // Only with a charger connected (setBypassCharging refuses otherwise)
+        if (prefs.autoBypassChargingOnDock && ShizukuHelper.isOnExternalPower(this)) {
             if (ShizukuHelper.setBypassCharging(this, enabled = true)) {
                 prefs.bypassChargingEnabled = true
             }
         }
+    }
+
+    /** Charger unplugged → bypass off at once (the battery must power the tablet and glasses). */
+    private val powerReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                Intent.ACTION_POWER_DISCONNECTED -> forceBypassOff()
+                Intent.ACTION_POWER_CONNECTED -> if (activeExternalDisplayId != null && prefs.autoBypassChargingOnDock &&
+                    ShizukuHelper.getStatus() == ShizukuStatus.READY && ShizukuHelper.setBypassCharging(this@DockMonitorService, true)
+                ) prefs.bypassChargingEnabled = true
+            }
+        }
+    }
+
+    private fun forceBypassOff() {
+        if (ShizukuHelper.getStatus() == ShizukuStatus.READY) ShizukuHelper.setBypassCharging(this, enabled = false)
+        prefs.bypassChargingEnabled = false
     }
 
     private fun handleUndocked() {
