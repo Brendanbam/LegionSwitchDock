@@ -1013,7 +1013,7 @@ private fun SwitchTvHubScreen(
                                 modifier = Modifier.size(16.dp)
                             )
                             Text(
-                                text = if (isGlasses) "LEGION XR" else "LEGION DOCK",
+                                text = if (isGlasses) "LEGION XR" else "LEGION SWITCH DOCK",
                                 color = activeTheme.textPrimary,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp,
@@ -1028,7 +1028,7 @@ private fun SwitchTvHubScreen(
                         border = BorderStroke(1.dp, activeTheme.borderSubtle)
                     ) {
                         Text(
-                            text = displaySummary,
+                            text = if (isGlasses) displaySummary else "ORBIT HOME  ·  $displaySummary",
                             color = activeTheme.textSecondary,
                             fontSize = 12.sp,
                             fontFamily = FontFamily.Monospace,
@@ -1299,38 +1299,49 @@ private fun SwitchTvHubScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Surface(
-                                color = activeTheme.accent,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.clickable {
-                                    val app = pinnedApps.getOrNull(safeTileIndex)
-                                    if (app != null) onLaunchApp(app)
-                                    else if (safeTileIndex == pinnedApps.size) {
-                                        selectedDrawerIndex = 0
-                                        showAllAppsDrawer = true
-                                    } else {
-                                        selectedMenuIndex = 0
-                                        showQuickMenu = true
+                            Box(
+                                modifier = Modifier
+                                    .shadow(
+                                        elevation = 16.dp,
+                                        shape = RoundedCornerShape(50),
+                                        ambientColor = Color(0xFFB645FF),
+                                        spotColor = Color(0xFF10DFFF)
+                                    )
+                                    .clip(RoundedCornerShape(50))
+                                    .background(Brush.horizontalGradient(
+                                        listOf(Color(0xFFB742F4),Color(0xFF7440D4),Color(0xFF00CFFF))
+                                    ))
+                                    .border(2.dp, Color(0xFFF5E5FF), RoundedCornerShape(50))
+                                    .clickable {
+                                        val app = pinnedApps.getOrNull(safeTileIndex)
+                                        if (app != null) onLaunchApp(app)
+                                        else if (safeTileIndex == pinnedApps.size) {
+                                            selectedDrawerIndex = 0
+                                            showAllAppsDrawer = true
+                                        } else {
+                                            selectedMenuIndex = 0
+                                            showQuickMenu = true
+                                        }
                                     }
-                                }
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 19.dp, vertical = 11.dp),
+                                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 11.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(9.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
                                 ) {
-                                    Icon(
-                                        if (heroApp == null) Icons.Rounded.Apps else Icons.Rounded.PlayArrow,
-                                        contentDescription = null,
-                                        tint = activeTheme.bgTop,
-                                        modifier = Modifier.size(19.dp)
-                                    )
+                                    Box(
+                                        modifier = Modifier.size(28.dp)
+                                            .clip(CircleShape).background(Color.White),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("A",color = Color(0xFF34205B),fontSize = 16.sp,fontWeight = FontWeight.Black)
+                                    }
                                     Text(
-                                        if (heroApp != null) "A   PLAY NOW" else "A   OPEN",
-                                        color = activeTheme.bgTop,
-                                        fontSize = 14.sp,
+                                        text = if (heroApp != null) "PLAY NOW" else "OPEN",
+                                        color = Color.White,
+                                        fontSize = 16.sp,
                                         fontWeight = FontWeight.ExtraBold,
-                                        letterSpacing = 0.8.sp
+                                        letterSpacing = 1.sp
                                     )
                                 }
                             }
@@ -1484,8 +1495,8 @@ private fun SwitchTvHubScreen(
                     }
                     Surface(
                         shape = RoundedCornerShape(20.dp),
-                        color = activeTheme.surfaceGlass.copy(alpha = 0.94f),
-                        border = BorderStroke(1.dp, activeTheme.accent.copy(alpha = 0.19f))
+                        color = Color(0xCC0D1034),
+                        border = BorderStroke(1.5.dp, Brush.horizontalGradient(listOf(Color(0xFFA750FF), Color(0xFF5A4D96), Color(0xFF13D9FF))))
                     ) {
                         LazyRow(
                             state = rowListState,
@@ -1545,6 +1556,7 @@ private fun SwitchTvHubScreen(
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     ButtonPrompt("A", "Launch", activeTheme)
+                    ButtonPrompt("B", "Back", activeTheme)
                     ButtonPrompt("Y", "Library", activeTheme)
                     ButtonPrompt("X", "Pin / Unpin", activeTheme)
                     ButtonPrompt("L1/R1", "Reorder", activeTheme)
