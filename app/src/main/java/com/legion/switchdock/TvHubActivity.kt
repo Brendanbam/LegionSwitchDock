@@ -1393,12 +1393,16 @@ private fun SwitchTvHubScreen(
                             label = "featuredArtworkFade"
                         ) { index ->
                             val app = pinnedApps.getOrNull(index)
-                            val showArtemisPoster = !isGlasses && app?.packageName == AppRepository.ARTEMIS_LEGION_PACKAGE
+                            val showCinematicPoster = !isGlasses && (
+                                app?.packageName == AppRepository.ARTEMIS_LEGION_PACKAGE ||
+                                app?.packageName == AppRepository.PLAY_PC_ID ||
+                                app?.label?.contains("Artemis", ignoreCase = true) == true
+                            )
                             Box(Modifier.fillMaxSize()) {
-                                if (showArtemisPoster) {
+                                if (showCinematicPoster) {
                                     Image(
                                         painter = painterResource(R.drawable.orbit_artemis_poster),
-                                        contentDescription = "Original Artemis Legion showcase illustration",
+                                        contentDescription = "Original futuristic city showcase illustration",
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier.fillMaxSize()
                                     )
@@ -1419,7 +1423,7 @@ private fun SwitchTvHubScreen(
                                 }
                                 // The new detailed poster is artwork only; use real Compose
                                 // text to keep its title crisp on TV and small displays.
-                                if (showArtemisPoster) {
+                                if (showCinematicPoster) {
                                     Box(
                                         Modifier.fillMaxSize().background(
                                             Brush.verticalGradient(
@@ -1433,7 +1437,7 @@ private fun SwitchTvHubScreen(
                                         verticalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
                                         Text(
-                                            "ARTEMIS LEGION",
+                                            if (app?.packageName == AppRepository.PLAY_PC_ID) "PLAY PC" else "ARTEMIS LEGION",
                                             color = Color.White,
                                             fontWeight = FontWeight.ExtraBold,
                                             fontSize = 26.sp,
