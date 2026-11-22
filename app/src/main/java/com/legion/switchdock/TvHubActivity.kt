@@ -93,6 +93,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -1345,7 +1346,7 @@ private fun SwitchTvHubScreen(
                                         modifier = Modifier.size(19.dp)
                                     )
                                     Text(
-                                        if (heroApp != null) "PLAY NOW" else "OPEN",
+                                        if (heroApp != null) "A   PLAY NOW" else "A   OPEN",
                                         color = activeTheme.bgTop,
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.ExtraBold,
@@ -1354,7 +1355,7 @@ private fun SwitchTvHubScreen(
                                 }
                             }
                             Text(
-                                text = if (isStream) (if (prefs.artemisWifiBoostEnabled) "● WI-FI BOOST" else "● STANDARD NETWORK") else "● EXTERNAL DISPLAY",
+                                text = if (isStream) (if (prefs.artemisWifiBoostEnabled) "● LOW LATENCY ON" else "● STREAM READY") else "● TV READY",
                                 color = activeTheme.textSecondary,
                                 fontSize = 11.sp,
                                 fontFamily = FontFamily.Monospace
@@ -1367,10 +1368,12 @@ private fun SwitchTvHubScreen(
                         modifier = Modifier.weight(0.95f).fillMaxHeight(),
                         contentAlignment = Alignment.Center
                     ) {
-                        OrbitArtwork(
-                            theme = activeTheme,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        if (!isGlasses) {
+                            OrbitArtwork(
+                                theme = activeTheme,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                         Crossfade(
                             targetState = safeTileIndex,
                             animationSpec = tween(320),
@@ -1728,6 +1731,35 @@ private fun OrbitArtwork(theme: HubTheme, modifier: Modifier = Modifier) {
             start = Offset(center.x, center.y - radius * 1.15f),
             end = Offset(center.x, center.y + radius * 1.15f),
             strokeWidth = 1.dp.toPx()
+        )
+        // Metallic orbit sweeps add depth without continuous animations.
+        val upperArc = Path().apply {
+            moveTo(size.width * 0.04f, size.height * 0.62f)
+            cubicTo(
+                size.width * 0.22f, size.height * 0.06f,
+                size.width * 0.84f, size.height * 0.05f,
+                size.width * 0.98f, size.height * 0.34f
+            )
+        }
+        drawPath(
+            upperArc,
+            brush = Brush.horizontalGradient(
+                listOf(Color.Transparent, theme.accent.copy(alpha = 0.57f), Color.Transparent)
+            ),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
+        )
+        val lowerArc = Path().apply {
+            moveTo(size.width * 0.08f, size.height * 0.72f)
+            cubicTo(
+                size.width * 0.44f, size.height * 1.18f,
+                size.width * 0.84f, size.height * 0.97f,
+                size.width * 0.99f, size.height * 0.48f
+            )
+        }
+        drawPath(
+            lowerArc,
+            color = theme.accent.copy(alpha = 0.30f),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.4.dp.toPx())
         )
         for (i in 1..28) {
             val x = size.width * (((i * 37) % 97) / 97f)
