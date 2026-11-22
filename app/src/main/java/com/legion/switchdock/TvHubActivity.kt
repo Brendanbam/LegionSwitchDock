@@ -1122,62 +1122,63 @@ private fun SwitchTvHubScreen(
                 }
             }
 
-            // Console dashboard: cinematic featured selection above the installed-app shelf.
-            // The same selection index and controller command handler drive both areas.
+            // TV Preview 2: a genuinely new split-screen console home.
+            // The hero, app rail and utilities all use the existing controller index.
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(
-                            text = if (isGlasses) "LEGION XR" else "YOUR GAME SPACE",
+                            text = "LEGION  /  HOME",
                             color = Color(0xFFCE9EFF),
-                            fontSize = 12.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 2.sp
                         )
                         Text(
-                            text = "Welcome back",
+                            text = "What are we playing?",
                             color = Color.White,
-                            fontSize = 29.sp,
-                            fontWeight = FontWeight.Bold
+                            fontSize = 28.sp,
+                            fontWeight = FontWeight.ExtraBold
                         )
                     }
                     Text(
-                        text = "D-PAD / STICK  •  BROWSE",
-                        color = Color(0xFFCEC1E5),
+                        text = "YOUR SPACE  •  ${pinnedApps.size} FAVORITES",
+                        color = Color(0xFFBDAED9),
                         fontSize = 12.sp
                     )
                 }
 
-                // The selected app drives the artwork and text; no network or copyrighted assets.
-                Surface(
-                    shape = RoundedCornerShape(24.dp),
-                    color = Color(0xFF100D26),
-                    border = BorderStroke(1.dp, Color(0xFF9465D7)),
-                    modifier = Modifier.fillMaxWidth().height(196.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(226.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Box(Modifier.fillMaxSize()) {
-                        // A purpose-built atmospheric landscape rather than a flat gradient.
+                    // Large cinematic feature occupies most of the dashboard.
+                    Box(
+                        modifier = Modifier.weight(1.85f).fillMaxSize()
+                            .clip(RoundedCornerShape(24.dp))
+                            .border(2.dp, Color(0xFF9568D8), RoundedCornerShape(24.dp))
+                    ) {
                         PreviewLandscape(Modifier.fillMaxSize())
                         Crossfade(
                             targetState = safeTileIndex,
-                            animationSpec = tween(260),
-                            label = "featuredAppTransition"
-                        ) { featuredIndex ->
-                            val featuredApp = pinnedApps.getOrNull(featuredIndex)
+                            animationSpec = tween(280),
+                            label = "featuredTransition"
+                        ) { index ->
+                            val app = pinnedApps.getOrNull(index)
                             Box(Modifier.fillMaxSize()) {
-                                if (featuredApp?.banner != null) {
+                                if (app?.banner != null) {
                                     Image(
-                                        bitmap = featuredApp.banner,
+                                        bitmap = app.banner,
                                         contentDescription = null,
                                         contentScale = ContentScale.Crop,
-                                        alpha = 0.55f,
+                                        alpha = 0.65f,
                                         modifier = Modifier.fillMaxSize()
                                     )
                                 }
@@ -1185,77 +1186,115 @@ private fun SwitchTvHubScreen(
                                     Modifier.fillMaxSize().background(
                                         Brush.horizontalGradient(
                                             listOf(
-                                                Color(0xFF0D0922).copy(alpha = 0.97f),
-                                                Color(0xFF170F36).copy(alpha = 0.84f),
-                                                Color(0xFF150C31).copy(alpha = 0.16f)
+                                                Color(0xFF090719).copy(alpha = 0.98f),
+                                                Color(0xFF140C2B).copy(alpha = 0.76f),
+                                                Color.Transparent
                                             )
                                         )
                                     )
                                 )
-                                Row(
-                                    modifier = Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 20.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                                Column(
+                                    modifier = Modifier.align(Alignment.CenterStart)
+                                        .padding(start = 26.dp, end = 120.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
-                                    Column(
-                                        modifier = Modifier.weight(1f),
-                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    Text(
+                                        text = if (app != null) "NOW SELECTED" else "SYSTEM & LIBRARY",
+                                        color = Color(0xFFD9B5FF),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 1.6.sp
+                                    )
+                                    Text(
+                                        text = app?.label ?: if (index == pinnedApps.size) "All Apps" else "Quick Menu",
+                                        color = Color.White,
+                                        fontSize = 40.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = if (app != null) "Your next session is one button away" else "Customize your console experience",
+                                        color = Color(0xFFE0D5F3),
+                                        fontSize = 13.sp
+                                    )
+                                    Surface(
+                                        color = Color(0xFFD4A4FF),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.clickable {
+                                            if (app != null) onLaunchApp(app)
+                                            else if (index == pinnedApps.size) {
+                                                selectedDrawerIndex = 0
+                                                showAllAppsDrawer = true
+                                            } else {
+                                                selectedMenuIndex = 0
+                                                showQuickMenu = true
+                                            }
+                                        }
                                     ) {
                                         Text(
-                                            text = if (featuredApp != null) "FEATURED  /  READY TO PLAY" else "EXPLORE YOUR LIBRARY",
-                                            color = Color(0xFFD9B5FF),
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            letterSpacing = 1.4.sp
-                                        )
-                                        Text(
-                                            text = featuredApp?.label ?: if (featuredIndex == pinnedApps.size) "All Apps & Pin" else "Quick Menu",
-                                            color = Color.White,
-                                            fontSize = 36.sp,
+                                            text = if (app != null) "A   PLAY NOW" else "A   OPEN",
+                                            color = Color(0xFF1B1032),
                                             fontWeight = FontWeight.ExtraBold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                            fontSize = 13.sp,
+                                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 9.dp)
                                         )
-                                        Surface(
-                                            shape = RoundedCornerShape(12.dp),
-                                            color = Color(0xFFAB75F0),
-                                            modifier = Modifier.clickable {
-                                                if (featuredApp != null) onLaunchApp(featuredApp)
-                                                else if (featuredIndex == pinnedApps.size) {
-                                                    selectedDrawerIndex = 0
-                                                    showAllAppsDrawer = true
-                                                } else {
-                                                    selectedMenuIndex = 0
-                                                    showQuickMenu = true
-                                                }
-                                            }
-                                        ) {
-                                            Text(
-                                                text = if (featuredApp != null) "A  LAUNCH" else "A  OPEN",
-                                                color = Color(0xFF170C2C),
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 9.dp)
-                                            )
-                                        }
-                                    }
-                                    if (featuredApp != null) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(130.dp)
-                                                .clip(RoundedCornerShape(26.dp))
-                                                .background(Color(0xBB130D2C))
-                                                .border(1.dp, Color(0xFFAD7EE7), RoundedCornerShape(26.dp)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Image(
-                                                bitmap = featuredApp.icon,
-                                                contentDescription = featuredApp.label,
-                                                modifier = Modifier.size(98.dp)
-                                            )
-                                        }
                                     }
                                 }
+                                if (app != null) {
+                                    Box(
+                                        modifier = Modifier.align(Alignment.CenterEnd)
+                                            .padding(end = 24.dp)
+                                            .size(100.dp)
+                                            .clip(RoundedCornerShape(22.dp))
+                                            .background(Color(0xB5100B25))
+                                            .border(1.dp, Color(0xFFB58BEE), RoundedCornerShape(22.dp)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Image(
+                                            bitmap = app.icon,
+                                            contentDescription = app.label,
+                                            modifier = Modifier.size(74.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Persistent utility panel provides an actual dashboard composition.
+                    Column(
+                        modifier = Modifier.weight(0.85f).fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Surface(
+                            color = Color(0xE6241B44),
+                            shape = RoundedCornerShape(20.dp),
+                            border = BorderStroke(1.dp, Color(0xFF60498E)),
+                            modifier = Modifier.weight(1f).fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Icon(Icons.Rounded.Gamepad, contentDescription = null, tint = Color(0xFFCCA0FF), modifier = Modifier.size(26.dp))
+                                Text("CONTROLLER READY", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text("D-pad / stick to browse", color = Color(0xFFBCAED7), fontSize = 11.sp)
+                            }
+                        }
+                        Surface(
+                            color = Color(0xE6202347),
+                            shape = RoundedCornerShape(20.dp),
+                            border = BorderStroke(1.dp, Color(0xFF60498E)),
+                            modifier = Modifier.weight(1f).fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Icon(Icons.Rounded.Apps, contentDescription = null, tint = Color(0xFFCCA0FF), modifier = Modifier.size(26.dp))
+                                Text("YOUR LIBRARY", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text("Y  All apps  •  X  Pin", color = Color(0xFFBCAED7), fontSize = 11.sp)
                             }
                         }
                     }
@@ -1263,26 +1302,26 @@ private fun SwitchTvHubScreen(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "YOUR APPS",
+                        "CONTINUE PLAYING",
                         color = Color.White,
+                        fontWeight = FontWeight.ExtraBold,
                         fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.4.sp
+                        letterSpacing = 1.3.sp
                     )
                     Text(
-                        text = "${pinnedApps.size} PINNED  •  Y ALL APPS",
-                        color = Color(0xFFB7A8D4),
-                        fontSize = 12.sp
+                        "A SELECT  •  L/R REORDER",
+                        color = Color(0xFFBDAED9),
+                        fontSize = 11.sp
                     )
                 }
 
                 LazyRow(
                     state = rowListState,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 7.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     itemsIndexed(pinnedApps, key = { _, app -> app.packageName }) { index, app ->
