@@ -913,7 +913,7 @@ private fun SwitchTvHubScreen(
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(activeTheme.bgTop, activeTheme.bgMid, activeTheme.bgBottom)
+                    colors = if (isGlasses) listOf(activeTheme.bgTop, activeTheme.bgMid, activeTheme.bgBottom) else listOf(Color(0xFF090819), Color(0xFF1C1042), Color(0xFF32135C), Color(0xFF080B1C))
                 )
             )
     ) {
@@ -957,7 +957,7 @@ private fun SwitchTvHubScreen(
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
-                                text = if (isGlasses) "LEGION XR" else "LEGION SWITCH",
+                                text = if (isGlasses) "LEGION XR" else "LEGION SWITCH DOCK  •  TV MODE",
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp,
@@ -967,7 +967,7 @@ private fun SwitchTvHubScreen(
                     }
                     Text(
                         text = displaySummary,
-                        color = Color(0xFF9BA3B4),
+                        color = Color(0xFFCCC2E9),
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
                     )
@@ -1125,7 +1125,7 @@ private fun SwitchTvHubScreen(
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 Text(
-                    text = focusedTitle,
+                    text = if (isGlasses) focusedTitle else "READY TO PLAY  •  $focusedTitle",
                     color = Color.White,
                     fontSize = 32.sp,
                     fontWeight = FontWeight.Bold,
@@ -1137,7 +1137,7 @@ private fun SwitchTvHubScreen(
                 LazyRow(
                     state = rowListState,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(22.dp)
+                    horizontalArrangement = Arrangement.spacedBy(26.dp)
                 ) {
                     itemsIndexed(pinnedApps, key = { _, app -> app.packageName }) { index, app ->
                         SwitchAppTile(
@@ -1155,7 +1155,7 @@ private fun SwitchTvHubScreen(
                         ActionTile(
                             title = "All Apps & Pin",
                             icon = Icons.Rounded.Add,
-                            accent = Color(0xFF00E5FF),
+                            accent = Color(0xFFB77AFF),
                             isSelected = (safeTileIndex == idx),
                             onClick = {
                                 selectedTileIndex = idx
@@ -1171,7 +1171,7 @@ private fun SwitchTvHubScreen(
                         ActionTile(
                             title = "Quick Menu",
                             icon = Icons.Rounded.Settings,
-                            accent = Color(0xFF4ADE80),
+                            accent = Color(0xFFB77AFF),
                             isSelected = (safeTileIndex == idx),
                             onClick = {
                                 selectedTileIndex = idx
@@ -1321,7 +1321,7 @@ private fun SwitchAppTile(
     onClick: () -> Unit
 ) {
     val scale by animateFloatAsState(
-        targetValue = if (isSelected) 1.08f else 1.0f,
+        targetValue = if (isSelected) 1.065f else 1.0f,
         animationSpec = tween(140),
         label = "tileScale"
     )
@@ -1339,12 +1339,12 @@ private fun SwitchAppTile(
                 .clip(RoundedCornerShape(22.dp))
                 .background(
                     Brush.radialGradient(
-                        colors = listOf(Color(0xFF283042), Color(0xFF1A1F2B))
+                        colors = listOf(Color(0xFF3B246C), Color(0xFF17112D), Color(0xFF100D20))
                     )
                 )
                 .border(
                     width = if (isSelected) 4.dp else 1.5.dp,
-                    color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF2E3545),
+                    color = if (isSelected) Color(0xFFB77AFF) else Color(0xFF4D3A77),
                     shape = RoundedCornerShape(22.dp)
                 ),
             contentAlignment = Alignment.Center
@@ -1369,7 +1369,7 @@ private fun SwitchAppTile(
         Spacer(modifier = Modifier.height(10.dp))
         Text(
             text = app.label,
-            color = if (isSelected) Color(0xFF00E5FF) else Color(0xFFB8C0D0),
+            color = if (isSelected) Color(0xFFE2C8FF) else Color(0xFFC2B6DB),
             fontSize = 15.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
             maxLines = 1,
