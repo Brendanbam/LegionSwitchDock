@@ -41,10 +41,26 @@ object SteamControllerDriver {
     private const val WIRED = 0x1302
     private const val ACTION_PERMISSION = "com.legion.switchdock.STEAM_CONTROLLER_PERMISSION"
 
-    // Virtual device identity (pid.codes test VID so no kernel driver claims it)
+    // The virtual gamepad presents itself as an Xbox One S controller over Bluetooth: Android's kernel
+    // driver for it (hid-microsoft) adds rumble, and Android has a ready-made button layout for it.
+    private const val XBOX_VID = 0x045e
+    private const val XBOX_ONE_S_BT = 0x02fd
+    private const val BUS_BLUETOOTH = 0x05
+    // The touchpad mouse uses a pid.codes test ID so no special driver claims it
     private const val VIRTUAL_VID = 0x1209
-    private const val VIRTUAL_PID = 0x5c02
     private const val VIRTUAL_MOUSE_PID = 0x5c03
+
+    private val slotsByHandle = java.util.concurrent.ConcurrentHashMap<Int, Any>()
+    private val uhidListener = object : com.legion.switchdock.IUhidListener.Stub() {
+        override fun onOutput(handle: Int, data: ByteArray) {
+            (slotsByHandle[handle] as? Slot)?.onSystemOutput(data)
+        }
+    }
+    @Volatile private var listenerShell: IShellService? = null
+    internal fun ensureListener(shell: IShellService) {
+        if (listenerShell === shell) return
+        runCatching { shell.uhidSetListener(uhidListener); listenerShell = shell }
+    }
 
     private val _status = MutableStateFlow("Plug the Steam Controller Puck into the dock")
     val status: StateFlow<String> = _status
@@ -156,22 +172,33 @@ object SteamControllerDriver {
     private class PuckConnection(val ctx: Context, val device: UsbDevice, val conn: UsbDeviceConnection) {
         private val slots = ArrayList<Slot>()
 
+        private val lizard = ArrayList<UsbInterface>()
+
         fun begin(shell: IShellService): Boolean {
+            val others = ArrayList<UsbInterface>()
             for (i in 0 until device.interfaceCount) {
                 val intf = device.getInterface(i)
                 if (intf.interfaceClass != UsbConstants.USB_CLASS_HID) continue
-                if (isCabled(device)) {
-                    // Skip the plain keyboard/mouse (lizard) interfaces
-                    if (intf.interfaceSubclass == 1 && (intf.interfaceProtocol == 1 || intf.interfaceProtocol == 2)) continue
-                } else if (intf.id !in 2..5) continue
+                val isSlot = if (isCabled(device))
+                    !(intf.interfaceSubclass == 1 && (intf.interfaceProtocol == 1 || intf.interfaceProtocol == 2))
+                else intf.id in 2..5
+                if (!isSlot) { others += intf; continue }
                 var epIn: UsbEndpoint? = null
+                var epOut: UsbEndpoint? = null
                 for (e in 0 until intf.endpointCount) {
                     val ep = intf.getEndpoint(e)
-                    if (ep.direction == UsbConstants.USB_DIR_IN && ep.type == UsbConstants.USB_ENDPOINT_XFER_INT) epIn = ep
+                    if (ep.type != UsbConstants.USB_ENDPOINT_XFER_INT) continue
+                    if (ep.direction == UsbConstants.USB_DIR_IN) epIn = ep else epOut = ep
                 }
                 if (epIn == null) continue
                 if (!conn.claimInterface(intf, true)) continue
-                slots += Slot(ctx, conn, intf, epIn, shell, wired = isCabled(device), number = slots.size + 1)
+                slots += Slot(ctx, conn, intf, epIn, epOut, shell, wired = isCabled(device), number = slots.size + 1)
+            }
+            if (slots.isNotEmpty()) {
+                // Take the controller's keyboard/mouse ("lizard") interfaces away from Android too, so
+                // the moments before lizard mode switches off (e.g. waking the controller) can't
+                // click on the tablet screen and pull focus away from the TV.
+                others.forEach { if (conn.claimInterface(it, true)) lizard += it }
             }
             slots.forEach { it.start() }
             return slots.isNotEmpty()
@@ -180,6 +207,7 @@ object SteamControllerDriver {
         fun end() {
             slots.forEach { it.stop() }
             slots.forEach { runCatching { conn.releaseInterface(it.intf) } }
+            lizard.forEach { runCatching { conn.releaseInterface(it) } }
             runCatching { conn.close() }
         }
     }
@@ -190,6 +218,7 @@ object SteamControllerDriver {
         val conn: UsbDeviceConnection,
         val intf: UsbInterface,
         val epIn: UsbEndpoint,
+        val epOut: UsbEndpoint?,
         var shell: IShellService,
         val wired: Boolean,
         val number: Int
@@ -210,6 +239,13 @@ object SteamControllerDriver {
         private var accX = 0f; private var accY = 0f; private var accWheel = 0f
         private var mouseButtons = 0
 
+        // rumble (0..100 from the system), resent every 40 ms: the controller stops on its own after ~50 ms
+        @Volatile private var rumbleStrong = 0
+        @Volatile private var rumbleWeak = 0
+        @Volatile private var rumbleDirty = false
+        private var lastRumbleSent = 0L
+        private var lastReportAt = 0L
+
         fun start() {
             running = true
             thread = Thread({ loop() }, "steam-controller-$number").apply { isDaemon = true; start() }
@@ -223,8 +259,11 @@ object SteamControllerDriver {
         }
 
         private fun connect() {
+            runCatching { lizardOff() }
+            lastMaintenance = System.currentTimeMillis()
             if (pad > 0) return
-            pad = callShell { it.uhidCreate("Steam Controller", VIRTUAL_VID, VIRTUAL_PID, GAMEPAD_DESCRIPTOR) } ?: 0
+            callShell { ensureListener(it) }
+            pad = callShell { it.uhidCreateOnBus("Steam Controller", BUS_BLUETOOTH, XBOX_VID, XBOX_ONE_S_BT, GAMEPAD_DESCRIPTOR) } ?: 0
             if (pad <= 0) {
                 val why = callShell { it.lastError() } ?: "Shizuku isn't responding"
                 report("Couldn't create the virtual controller ($why)")
@@ -232,6 +271,7 @@ object SteamControllerDriver {
                 return
             }
             lastPad = null
+            slotsByHandle[pad] = this
             report("Steam Controller connected" + if (battery >= 0) " · $battery% battery" else "")
         }
 
@@ -241,7 +281,17 @@ object SteamControllerDriver {
             if (mouse < 0) mouse = 0
         }
 
+        /** Controller asleep/off: keep the virtual controller (so apps and focus stay put), just centre it. */
+        private fun idle() {
+            rumbleStrong = 0; rumbleWeak = 0
+            if (pad <= 0) return
+            val r = ByteArray(15); r[0] = 1; r[4] = 8
+            lastPad = r
+            callShell { it.uhidInput(pad, r) }
+        }
+
         private fun disconnect() {
+            slotsByHandle.remove(pad)
             if (pad > 0) callShell { it.uhidDestroy(pad) }
             if (mouse > 0) callShell { it.uhidDestroy(mouse) }
             pad = 0; mouse = 0
@@ -252,7 +302,7 @@ object SteamControllerDriver {
         } catch (e: Exception) {
             // Shizuku restarted: pick up the new shell service
             ShizukuHelper.markServiceDead()
-            ShizukuHelper.shellServiceOrNull(ctx)?.let { shell = it; runCatching { block(it) }.getOrNull() }
+            ShizukuHelper.shellServiceOrNull(ctx)?.let { shell = it; ensureListener(it); runCatching { block(it) }.getOrNull() }
         }
 
         private fun lizardOff() {
@@ -272,9 +322,39 @@ object SteamControllerDriver {
                     runCatching { lizardOff() }
                     lastMaintenance = now
                 }
-                val n = try { conn.bulkTransfer(epIn, buf, buf.size, 250) } catch (_: Exception) { -1 }
+                if (rumbleDirty || ((rumbleStrong > 0 || rumbleWeak > 0) && now - lastRumbleSent >= 40)) sendRumble(now)
+                val n = try { conn.bulkTransfer(epIn, buf, buf.size, 30) } catch (_: Exception) { -1 }
                 if (n <= 0) continue
+                // First report after a quiet spell = the controller just woke: switch lizard mode off right away
+                val t = System.currentTimeMillis()
+                if (t - lastReportAt > 1500) { runCatching { lizardOff() }; lastMaintenance = t }
+                lastReportAt = t
                 try { handle(buf, n) } catch (e: Exception) { Log.w(TAG, "bad report", e) }
+            }
+        }
+
+        /** Rumble request from Android (hid-microsoft's Xbox report: id 3, magnitudes 0..100 at [4] and [5]). */
+        fun onSystemOutput(data: ByteArray) {
+            if (data.size < 6 || data[0].toInt() != 3) return
+            rumbleStrong = (data[4].toInt() and 0xff).coerceIn(0, 100)
+            rumbleWeak = (data[5].toInt() and 0xff).coerceIn(0, 100)
+            rumbleDirty = true
+        }
+
+        private fun sendRumble(now: Long) {
+            rumbleDirty = false
+            lastRumbleSent = now
+            // Output report 0x80: type, intensity, left motor (speed, gain), right motor (speed, gain)
+            val left = rumbleStrong * 65535 / 100
+            val right = rumbleWeak * 65535 / 100
+            val r = ByteArray(10)
+            r[0] = 0x80.toByte()
+            // layout: [0]=id [1]=type [2,3]=intensity [4,5]=left speed [6]=left gain [7,8]=right speed [9]=right gain
+            r[4] = left.toByte(); r[5] = (left shr 8).toByte(); r[6] = 0
+            r[7] = right.toByte(); r[8] = (right shr 8).toByte(); r[9] = 0
+            runCatching {
+                val sent = if (epOut != null) conn.bulkTransfer(epOut, r, r.size, 50) else -1
+                if (sent < 0) conn.controlTransfer(0x21, 0x09, 0x0280, intf.id, r, r.size, 100)
             }
         }
 
@@ -291,7 +371,7 @@ object SteamControllerDriver {
                 }
                 0x46, 0x79 -> if (n >= 2) when (d[1].toInt()) {
                     2 -> connect()
-                    1 -> { disconnect(); report("Steam Controller turned off — puck ready") }
+                    1 -> { idle(); report("Steam Controller asleep — press the Steam button to wake it") }
                 }
             }
         }
@@ -319,9 +399,7 @@ object SteamControllerDriver {
             set(0x200, 7)        // R1
             if (tl > 8192) out = out or (1 shl 8)   // L2 (digital)
             if (tr > 8192) out = out or (1 shl 9)   // R2 (digital)
-            set(0x4000, 10)      // View (Back / Select) — same mapping SDL uses
             set(0x40, 11)        // Menu (Start)
-            set(0x10000, 12)     // Steam → Home / Guide
             set(0x8000, 13)      // L3
             set(0x20, 14)        // R3
             set(0x10, 16)        // Quick access (…)
@@ -351,7 +429,11 @@ object SteamControllerDriver {
             val r = ByteArray(15)
             r[0] = 1
             r[1] = out.toByte(); r[2] = (out shr 8).toByte(); r[3] = (out shr 16).toByte()
-            r[4] = hat.toByte()
+            // View → "Back" key and Steam → "Home" key, as a real Xbox controller sends them
+            var extra = hat
+            if ((b and 0x4000L) != 0L) extra = extra or 0x20
+            if ((b and 0x10000L) != 0L) extra = extra or 0x10
+            r[4] = extra.toByte()
             put16(r, 5, lx); put16(r, 7, neg(lyStick))
             put16(r, 9, rxStick); put16(r, 11, neg(ryStick))
             r[13] = (tl.coerceIn(0, 32767) shr 7).toByte()
@@ -418,17 +500,20 @@ object SteamControllerDriver {
         r[o] = c.toByte(); r[o + 1] = (c shr 8).toByte()
     }
 
-    /** Standard gamepad: 24 buttons, hat, two sticks (X/Y, Z/Rz), brake/gas triggers. Report ID 1. */
+    /** Gamepad: 24 buttons, hat, Home/Back keys, two sticks (X/Y, Z/Rz), brake/gas triggers (report 1); rumble out (report 3). */
     private val GAMEPAD_DESCRIPTOR = bytes(
         0x05, 0x01, 0x09, 0x05, 0xA1, 0x01, 0x85, 0x01,
         0x05, 0x09, 0x19, 0x01, 0x29, 0x18, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x18, 0x81, 0x02,
         0x05, 0x01, 0x09, 0x39, 0x15, 0x00, 0x25, 0x07, 0x35, 0x00, 0x46, 0x3B, 0x01, 0x65, 0x14,
         0x75, 0x04, 0x95, 0x01, 0x81, 0x42,
-        0x75, 0x04, 0x95, 0x01, 0x81, 0x03,
         0x65, 0x00, 0x45, 0x00,
+        0x05, 0x0C, 0x0A, 0x23, 0x02, 0x0A, 0x24, 0x02, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x02, 0x81, 0x02,
+        0x75, 0x02, 0x95, 0x01, 0x81, 0x03,
         0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x09, 0x32, 0x09, 0x35,
         0x16, 0x01, 0x80, 0x26, 0xFF, 0x7F, 0x75, 0x10, 0x95, 0x04, 0x81, 0x02,
         0x05, 0x02, 0x09, 0xC5, 0x09, 0xC4, 0x15, 0x00, 0x26, 0xFF, 0x00, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02,
+        // Output report 3: rumble (filled in by the kernel's Xbox driver)
+        0x85, 0x03, 0x06, 0x00, 0xFF, 0x09, 0x01, 0x15, 0x00, 0x26, 0xFF, 0x00, 0x75, 0x08, 0x95, 0x08, 0x91, 0x02,
         0xC0
     )
 

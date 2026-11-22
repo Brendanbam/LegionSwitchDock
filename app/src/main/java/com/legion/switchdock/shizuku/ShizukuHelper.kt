@@ -33,7 +33,14 @@ class ShizukuShellService : IShellService.Stub() {
 
     override fun lastError(): String = error
 
-    override fun uhidCreate(name: String, vendor: Int, product: Int, descriptor: ByteArray): Int {
+    @Volatile private var listener: com.legion.switchdock.IUhidListener? = null
+
+    override fun uhidSetListener(l: com.legion.switchdock.IUhidListener?) { listener = l }
+
+    override fun uhidCreate(name: String, vendor: Int, product: Int, descriptor: ByteArray): Int =
+        uhidCreateOnBus(name, 0x03, vendor, product, descriptor)
+
+    override fun uhidCreateOnBus(name: String, bus: Int, vendor: Int, product: Int, descriptor: ByteArray): Int {
         return try {
             val file = java.io.RandomAccessFile("/dev/uhid", "rw")
             val handle = nextHandle.getAndIncrement()
@@ -44,7 +51,7 @@ class ShizukuShellService : IShellService.Stub() {
             val uniq = "legion-$handle".toByteArray()
             ev.position(4 + 192); ev.put(uniq)
             ev.putShort(4 + 256, descriptor.size.toShort())
-            ev.putShort(4 + 258, 0x03) // BUS_USB
+            ev.putShort(4 + 258, bus.toShort())
             ev.putInt(4 + 260, vendor)
             ev.putInt(4 + 264, product)
             ev.putInt(4 + 268, 1)
@@ -53,10 +60,33 @@ class ShizukuShellService : IShellService.Stub() {
             file.write(ev.array(), 0, ev.capacity())
             val dev = Uhid(file)
             uhids[handle] = dev
-            // Drain the events the kernel sends back (start/open/close) so its queue never fills
+            // Read what the kernel sends back: rumble (output reports) go to the app; report
+            // requests get an immediate "not supported" so the kernel never waits on us.
             Thread {
                 val buf = ByteArray(4380)
-                try { while (dev.open) { if (file.read(buf) <= 0) break } } catch (_: Exception) {}
+                val bb = java.nio.ByteBuffer.wrap(buf).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                try {
+                    while (dev.open) {
+                        if (file.read(buf) <= 0) break
+                        when (bb.getInt(0)) {
+                            6 -> { // UHID_OUTPUT
+                                val size = (bb.getShort(4 + 4096).toInt() and 0xffff).coerceAtMost(4096)
+                                val data = buf.copyOfRange(4, 4 + size)
+                                runCatching { listener?.onOutput(handle, data) }
+                            }
+                            9 -> { // UHID_GET_REPORT → UHID_GET_REPORT_REPLY with EIO
+                                val reply = java.nio.ByteBuffer.allocate(12).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                                reply.putInt(10).putInt(bb.getInt(4)).putShort(5).putShort(0)
+                                synchronized(dev) { file.write(reply.array()) }
+                            }
+                            13 -> { // UHID_SET_REPORT → UHID_SET_REPORT_REPLY ok
+                                val reply = java.nio.ByteBuffer.allocate(10).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                                reply.putInt(14).putInt(bb.getInt(4)).putShort(0)
+                                synchronized(dev) { file.write(reply.array()) }
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
             }.apply { isDaemon = true }.start()
             handle
         } catch (e: Exception) {
@@ -185,7 +215,7 @@ object ShizukuHelper {
             .daemon(false)
             .processNameSuffix("shizuku_shell")
             .debuggable(false)
-            .version(2)
+            .version(3)
 
         runCatching {
             Shizuku.bindUserService(args, connection)
