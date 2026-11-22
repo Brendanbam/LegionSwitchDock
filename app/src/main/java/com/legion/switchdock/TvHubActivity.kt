@@ -24,7 +24,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -84,6 +86,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -1152,83 +1155,107 @@ private fun SwitchTvHubScreen(
                     )
                 }
 
-                // Selected app gets a true featured hero, not just a colored border.
+                // The selected app drives the artwork and text; no network or copyrighted assets.
                 Surface(
                     shape = RoundedCornerShape(24.dp),
-                    color = Color(0xFF1A1435),
-                    border = BorderStroke(1.dp, Color(0xFF8055BD)),
-                    modifier = Modifier.fillMaxWidth().height(178.dp)
+                    color = Color(0xFF100D26),
+                    border = BorderStroke(1.dp, Color(0xFF9465D7)),
+                    modifier = Modifier.fillMaxWidth().height(196.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(Color(0xFF30165E), Color(0xFF231D55), Color(0xFF0D142B))
-                                )
-                            )
-                    ) {
-                        // Abstract horizon adds depth without third-party artwork.
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.CenterEnd)
-                                .size(220.dp)
-                                .background(
-                                    Brush.radialGradient(
-                                        listOf(Color(0xFF9952E8).copy(alpha = 0.42f), Color.Transparent)
-                                    )
-                                )
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxSize().padding(horizontal = 26.dp, vertical = 18.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(22.dp)
-                        ) {
-                            val featuredApp = pinnedApps.getOrNull(safeTileIndex)
-                            if (featuredApp != null) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(116.dp)
-                                        .clip(RoundedCornerShape(20.dp))
-                                        .background(Color(0xFF120D26)),
-                                    contentAlignment = Alignment.Center
-                                ) {
+                    Box(Modifier.fillMaxSize()) {
+                        // A purpose-built atmospheric landscape rather than a flat gradient.
+                        PreviewLandscape(Modifier.fillMaxSize())
+                        Crossfade(
+                            targetState = safeTileIndex,
+                            animationSpec = tween(260),
+                            label = "featuredAppTransition"
+                        ) { featuredIndex ->
+                            val featuredApp = pinnedApps.getOrNull(featuredIndex)
+                            Box(Modifier.fillMaxSize()) {
+                                if (featuredApp?.banner != null) {
                                     Image(
-                                        bitmap = featuredApp.banner ?: featuredApp.icon,
-                                        contentDescription = featuredApp.label,
-                                        contentScale = if (featuredApp.banner != null) ContentScale.Crop else ContentScale.Fit,
-                                        modifier = if (featuredApp.banner != null) Modifier.fillMaxSize() else Modifier.size(86.dp)
+                                        bitmap = featuredApp.banner,
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Crop,
+                                        alpha = 0.55f,
+                                        modifier = Modifier.fillMaxSize()
                                     )
                                 }
-                            } else {
-                                Icon(
-                                    if (safeTileIndex == pinnedApps.size) Icons.Rounded.Apps else Icons.Rounded.Settings,
-                                    contentDescription = null,
-                                    tint = Color(0xFFD6A9FF),
-                                    modifier = Modifier.size(88.dp)
+                                Box(
+                                    Modifier.fillMaxSize().background(
+                                        Brush.horizontalGradient(
+                                            listOf(
+                                                Color(0xFF0D0922).copy(alpha = 0.97f),
+                                                Color(0xFF170F36).copy(alpha = 0.84f),
+                                                Color(0xFF150C31).copy(alpha = 0.16f)
+                                            )
+                                        )
+                                    )
                                 )
-                            }
-                            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                                Text(
-                                    text = if (featuredApp != null) "READY TO LAUNCH" else "SYSTEM",
-                                    color = Color(0xFFD6A9FF),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 1.5.sp
-                                )
-                                Text(
-                                    text = focusedTitle,
-                                    color = Color.White,
-                                    fontSize = 32.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = if (featuredApp != null) "Press A to play" else "Press A to open",
-                                    color = Color(0xFFD4CAE7),
-                                    fontSize = 15.sp
-                                )
+                                Row(
+                                    modifier = Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 20.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Text(
+                                            text = if (featuredApp != null) "FEATURED  /  READY TO PLAY" else "EXPLORE YOUR LIBRARY",
+                                            color = Color(0xFFD9B5FF),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 1.4.sp
+                                        )
+                                        Text(
+                                            text = featuredApp?.label ?: if (featuredIndex == pinnedApps.size) "All Apps & Pin" else "Quick Menu",
+                                            color = Color.White,
+                                            fontSize = 36.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = Color(0xFFAB75F0),
+                                            modifier = Modifier.clickable {
+                                                if (featuredApp != null) onLaunchApp(featuredApp)
+                                                else if (featuredIndex == pinnedApps.size) {
+                                                    selectedDrawerIndex = 0
+                                                    showAllAppsDrawer = true
+                                                } else {
+                                                    selectedMenuIndex = 0
+                                                    showQuickMenu = true
+                                                }
+                                            }
+                                        ) {
+                                            Text(
+                                                text = if (featuredApp != null) "A  LAUNCH" else "A  OPEN",
+                                                color = Color(0xFF170C2C),
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 9.dp)
+                                            )
+                                        }
+                                    }
+                                    if (featuredApp != null) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(130.dp)
+                                                .clip(RoundedCornerShape(26.dp))
+                                                .background(Color(0xBB130D2C))
+                                                .border(1.dp, Color(0xFFAD7EE7), RoundedCornerShape(26.dp)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Image(
+                                                bitmap = featuredApp.icon,
+                                                contentDescription = featuredApp.label,
+                                                modifier = Modifier.size(98.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1309,6 +1336,7 @@ private fun SwitchTvHubScreen(
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                     ButtonPrompt("A", "Launch")
+                    ButtonPrompt("B", "Back")
                     ButtonPrompt("L/R", "Reorder")
                     ButtonPrompt("X", "Unpin")
                     ButtonPrompt("Y", "All Apps")
@@ -1428,6 +1456,55 @@ private fun SwitchTvHubScreen(
                 }
             }
         }
+    }
+}
+
+/** Original vector landscape drawn at any TV resolution; no bitmap downloads or licensing. */
+@Composable
+private fun PreviewLandscape(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        drawRect(
+            brush = Brush.verticalGradient(
+                listOf(Color(0xFF140F38), Color(0xFF6036A0), Color(0xFF18102F))
+            )
+        )
+        drawCircle(
+            brush = Brush.radialGradient(
+                listOf(Color(0xFFDF9BFF).copy(alpha = 0.75f), Color.Transparent),
+                center = Offset(w * 0.79f, h * 0.34f),
+                radius = h * 0.56f
+            ),
+            radius = h * 0.56f,
+            center = Offset(w * 0.79f, h * 0.34f)
+        )
+        drawCircle(Color(0xFFDBB6F9), radius = h * 0.16f, center = Offset(w * 0.79f, h * 0.34f))
+        val back = Path().apply {
+            moveTo(0f, h * 0.83f)
+            lineTo(w * 0.21f, h * 0.37f)
+            lineTo(w * 0.39f, h * 0.79f)
+            lineTo(w * 0.62f, h * 0.30f)
+            lineTo(w * 0.82f, h * 0.78f)
+            lineTo(w, h * 0.48f)
+            lineTo(w, h)
+            lineTo(0f, h)
+            close()
+        }
+        drawPath(back, Color(0xFF38245E))
+        val front = Path().apply {
+            moveTo(0f, h * 0.94f)
+            lineTo(w * 0.15f, h * 0.67f)
+            lineTo(w * 0.34f, h * 0.95f)
+            lineTo(w * 0.55f, h * 0.63f)
+            lineTo(w * 0.72f, h * 0.93f)
+            lineTo(w * 0.92f, h * 0.69f)
+            lineTo(w, h * 0.82f)
+            lineTo(w, h)
+            lineTo(0f, h)
+            close()
+        }
+        drawPath(front, Color(0xFF130F2E))
     }
 }
 
