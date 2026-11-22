@@ -997,7 +997,10 @@ private fun SwitchTvHubScreen(
         val outerPadV = (if (isGlasses) 28.dp else 16.dp) + (configuration.screenHeightDp * glassesMarginFraction).dp
         // Fit the featured artwork and up to six launch tiles on the actual display,
         // rather than assuming TV density / usable width is identical to a tablet.
-        val compactHome = !isGlasses && configuration.screenHeightDp / tvScale < 610f
+        // Size of the scaled layout canvas (≈1280×720 on a 4K TV), for all size decisions below
+        val canvasWidthDp = configuration.screenWidthDp / tvScale
+        val canvasHeightDp = configuration.screenHeightDp / tvScale
+        val compactHome = !isGlasses && canvasHeightDp < 610f
         val visibleDockTiles = (pinnedApps.size + 2).coerceIn(2, 6)
         val availableDockDp = configuration.screenWidthDp.toFloat() / tvScale - outerPadH.value * 2f
         val dockCardWidth = if (isGlasses) 158.dp else
@@ -1292,7 +1295,7 @@ private fun SwitchTvHubScreen(
                     // Title and action sit directly on the ambient canvas, not inside a card.
                     Column(
                         modifier = Modifier.weight(1.25f),
-                        verticalArrangement = Arrangement.spacedBy(if (configuration.screenHeightDp < 550) 7.dp else 11.dp)
+                        verticalArrangement = Arrangement.spacedBy(if (canvasHeightDp < 550f) 7.dp else 11.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                             Box(Modifier.size(7.dp).clip(CircleShape).background(activeTheme.accent))
@@ -1308,8 +1311,8 @@ private fun SwitchTvHubScreen(
                             Text(
                                 text = title,
                                 color = activeTheme.textPrimary,
-                                fontSize = if (configuration.screenWidthDp < 850) 37.sp else 54.sp,
-                                lineHeight = if (configuration.screenWidthDp < 850) 42.sp else 57.sp,
+                                fontSize = if (canvasWidthDp < 850f) 37.sp else 54.sp,
+                                lineHeight = if (canvasWidthDp < 850f) 42.sp else 57.sp,
                                 letterSpacing = (-1.8).sp,
                                 fontWeight = FontWeight.Black,
                                 maxLines = 2,
