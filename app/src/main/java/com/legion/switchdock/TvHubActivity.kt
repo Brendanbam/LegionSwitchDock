@@ -1789,6 +1789,53 @@ private fun CosmicCityArtwork(theme: HubTheme, modifier: Modifier = Modifier) {
     }
 }
 
+/** Reusable neon tile canvas: varied cyan/violet artwork for apps without banners. */
+@Composable
+private fun NeonTileBackdrop(
+    theme: HubTheme,
+    seed: Int,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val cyan = Color(0xFF00DFFF)
+        val purple = Color(0xFFB739FF)
+        val flip = seed % 3 == 0
+        drawRect(
+            Brush.linearGradient(
+                if (flip) listOf(Color(0xFF06315B),Color(0xFF10143D),Color(0xFF43145E))
+                else listOf(Color(0xFF23165C),Color(0xFF140C38),Color(0xFF530C7B)),
+                start = Offset(0f,0f), end = Offset(w,h)
+            )
+        )
+        val glow = Offset(w*(if(flip).69f else .32f),h*.41f)
+        drawCircle(
+            brush = Brush.radialGradient(
+                listOf((if(flip)cyan else purple).copy(alpha=.64f),Color.Transparent),
+                center=glow,radius=w*.54f
+            ),
+            center=glow,radius=w*.54f
+        )
+        for(i in -2..7) {
+            val x = w*i/6f
+            drawLine(
+                color = (if (flip)cyan else theme.accent).copy(alpha=.15f),
+                start = Offset(x,0f),
+                end = Offset(x+w*.39f,h),
+                strokeWidth = 1.dp.toPx()
+            )
+        }
+        for(i in 0..12) {
+            drawCircle(
+                color = Color.White.copy(alpha=if(i%4==0).54f else .16f),
+                radius=if(i%4==0)1.1.dp.toPx() else .65.dp.toPx(),
+                center=Offset(w*(((i*7+5)%17)/17f),h*(((i*11+3)%19)/19f)*.72f)
+            )
+        }
+    }
+}
+
 @Composable
 private fun SwitchAppTile(
     app: AppEntry,
@@ -1797,87 +1844,87 @@ private fun SwitchAppTile(
     onClick: () -> Unit
 ) {
     val scale by animateFloatAsState(
-        targetValue = if (isSelected) 1.095f else 0.96f,
-        animationSpec = tween(210),
-        label = "tileScale"
+        targetValue = if (isSelected) 1.055f else .97f,
+        animationSpec = tween(200),
+        label = "showcaseTileFocus"
     )
-
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
+    val shape = RoundedCornerShape(18.dp)
+    Box(
         modifier = Modifier
+            .size(width = 158.dp, height = 114.dp)
             .scale(scale)
-            .clickable { onClick() }
+            .shadow(
+                elevation = if (isSelected) 17.dp else 3.dp,
+                shape = shape,
+                ambientColor = Color(0xFFB63DFF),
+                spotColor = Color(0xFF0FCDFB)
+            )
+            .clip(shape)
+            .background(theme.surfaceElevated)
+            .border(
+                width = if (isSelected) 3.dp else 1.dp,
+                brush = if (isSelected) Brush.linearGradient(
+                    listOf(Color.White,Color(0xFFCB46FF),Color(0xFF12E0FF))
+                ) else Brush.linearGradient(listOf(theme.borderSubtle,theme.borderSubtle)),
+                shape = shape
+            )
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
     ) {
+        if (app.banner != null) {
+            Image(
+                bitmap = app.banner,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            NeonTileBackdrop(
+                theme = theme,
+                seed = app.packageName.hashCode(),
+                modifier = Modifier.fillMaxSize()
+            )
+            Image(
+                bitmap = app.icon,
+                contentDescription = null,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(bottom = 18.dp)
+                    .size(57.dp)
+                    .clip(RoundedCornerShape(12.dp))
+            )
+        }
         Box(
             modifier = Modifier
-                .width(148.dp)
-                .height(82.dp)
-                .shadow(if (isSelected) 17.dp else 0.dp, RoundedCornerShape(18.dp), ambientColor = theme.accent, spotColor = theme.accent)
-                .clip(RoundedCornerShape(18.dp))
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(48.dp)
                 .background(
                     Brush.verticalGradient(
-                        colors = if (isSelected) {
-                            listOf(theme.focusGlow.copy(alpha = 0.30f), theme.surfaceElevated)
-                        } else {
-                            listOf(theme.surfaceElevated, theme.bgBottom)
-                        }
+                        listOf(Color.Transparent,Color(0xF0070822))
                     )
                 )
-                .border(
-                    width = if (isSelected) 3.dp else 1.dp,
-                    color = if (isSelected) theme.accent else theme.borderSubtle,
-                    shape = RoundedCornerShape(18.dp)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            if (app.banner != null) {
-                Image(
-                    bitmap = app.banner,
-                    contentDescription = app.label,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.50f))
-                            )
-                        )
-                )
-            } else {
-                Image(
-                    bitmap = app.icon,
-                    contentDescription = app.label,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                )
-            }
-            if (isSelected) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 6.dp)
-                        .width(40.dp)
-                        .height(3.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(theme.accent)
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(8.dp))
+        )
         Text(
             text = app.label,
-            color = if (isSelected) theme.textPrimary else theme.textSecondary,
-            fontSize = if (isSelected) 13.sp else 12.sp,
-            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
-            textAlign = TextAlign.Center,
+            color = Color.White,
+            fontSize = 13.sp,
+            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.width(144.dp)
+            textAlign = TextAlign.Center,
+            modifier = Modifier.align(Alignment.BottomCenter)
+                .fillMaxWidth().padding(horizontal = 7.dp, vertical = 9.dp)
         )
+        if (isSelected) {
+            Box(
+                Modifier.align(Alignment.TopCenter).padding(top = 3.dp)
+                    .width(50.dp).height(3.dp).clip(RoundedCornerShape(50))
+                    .background(Brush.horizontalGradient(
+                        listOf(Color(0xFFBB4EFF),Color(0xFF00DFFF))
+                    ))
+            )
+        }
     }
 }
 
@@ -1889,58 +1936,54 @@ private fun ActionTile(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
+    val shape = RoundedCornerShape(18.dp)
     val scale by animateFloatAsState(
-        targetValue = if (isSelected) 1.095f else 0.96f,
-        animationSpec = tween(210),
-        label = "actionScale"
+        targetValue = if (isSelected) 1.055f else .97f,
+        animationSpec = tween(200),
+        label = "systemTileFocus"
     )
-
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
+    Box(
         modifier = Modifier
+            .size(width = 158.dp, height = 114.dp)
             .scale(scale)
-            .clickable { onClick() }
-    ) {
-        Box(
-            modifier = Modifier
-                .width(148.dp)
-                .height(82.dp)
-                .shadow(if (isSelected) 17.dp else 0.dp, RoundedCornerShape(18.dp), ambientColor = theme.accent, spotColor = theme.accent)
-                .clip(RoundedCornerShape(18.dp))
-                .background(
-                    if (isSelected) theme.focusGlow.copy(alpha = 0.25f) else theme.surfaceElevated
-                )
-                .border(
-                    width = if (isSelected) 3.dp else 1.dp,
-                    color = if (isSelected) theme.accent else theme.borderSubtle,
-                    shape = RoundedCornerShape(18.dp)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = title,
-                tint = if (isSelected) theme.accent else theme.textSecondary,
-                modifier = Modifier.size(30.dp)
+            .shadow(
+                elevation = if (isSelected) 17.dp else 3.dp,
+                shape = shape,
+                ambientColor = Color(0xFFA83AFF),
+                spotColor = Color(0xFF07D5F9)
             )
-            if (isSelected) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 6.dp)
-                        .width(34.dp)
-                        .height(3.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(theme.accent)
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(8.dp))
+            .clip(shape)
+            .background(theme.surfaceElevated)
+            .border(
+                width = if (isSelected) 3.dp else 1.dp,
+                brush = if(isSelected) Brush.linearGradient(
+                    listOf(Color.White,Color(0xFFBC48FE),Color(0xFF08DAF9))
+                ) else Brush.linearGradient(listOf(theme.borderSubtle,theme.borderSubtle)),
+                shape = shape
+            )
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        NeonTileBackdrop(theme = theme, seed = title.hashCode(), modifier = Modifier.fillMaxSize())
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = Color(0xFFECE3FF),
+            modifier = Modifier.align(Alignment.Center).padding(bottom = 16.dp).size(47.dp)
+        )
+        Box(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(48.dp)
+                .background(Brush.verticalGradient(listOf(Color.Transparent,Color(0xED090A26))))
+        )
         Text(
             text = title,
-            color = if (isSelected) theme.textPrimary else theme.textSecondary,
-            fontSize = if (isSelected) 13.sp else 12.sp,
-            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
+            color = Color.White,
+            fontSize = 13.sp,
+            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            modifier = Modifier.align(Alignment.BottomCenter)
+                .fillMaxWidth().padding(horizontal = 7.dp, vertical = 9.dp)
         )
     }
 }
