@@ -121,6 +121,15 @@ class DockPreferences(private val context: Context) {
         get() = prefs.getBoolean("steam_touchpad_mouse", true)
         set(value) = prefs.edit().putBoolean("steam_touchpad_mouse", value).apply()
 
+    /** Haptic clicks and ticks on the Steam Controller touchpads while they work as a mouse. */
+    var steamTouchpadHaptics: Boolean
+        get() = prefs.getBoolean("steam_touchpad_haptics", true)
+        set(value) = prefs.edit().putBoolean("steam_touchpad_haptics", value).apply()
+
+    var steamHapticStrengthPct: Int
+        get() = prefs.getInt("steam_haptic_strength", 100)
+        set(value) = prefs.edit().putInt("steam_haptic_strength", value.coerceIn(25, 250)).apply()
+
     /** Touchpad mouse speed in percent (60 = slow, 100 = normal, 150 = fast). */
     var steamMouseSpeedPct: Int
         get() = prefs.getInt("steam_mouse_speed", 100)

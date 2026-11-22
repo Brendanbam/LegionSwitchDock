@@ -259,6 +259,8 @@ object SteamControllerDriver {
         private var accX = 0f; private var accY = 0f; private var accWheel = 0f
         private var fx = 0f; private var fy = 0f        // smoothed finger position
         private var touchFrames = 0
+        private var travel = 0f      // pointer distance since the last movement tick
+        private var lastClickButtons = 0
         private var mouseButtons = 0
 
         // rumble (0..100 from the system), resent every 40 ms: the controller stops on its own after ~50 ms
@@ -376,10 +378,34 @@ object SteamControllerDriver {
             // layout: [0]=id [1]=type [2,3]=intensity [4,5]=left speed [6]=left gain [7,8]=right speed [9]=right gain
             r[4] = left.toByte(); r[5] = (left shr 8).toByte(); r[6] = 0
             r[7] = right.toByte(); r[8] = (right shr 8).toByte(); r[9] = 0
+            sendOutput(r)
+        }
+
+        /** Output report to the controller: interrupt OUT if it has one, otherwise HID SET_REPORT (output). */
+        private fun sendOutput(r: ByteArray) {
             runCatching {
                 val sent = if (epOut != null) conn.bulkTransfer(epOut, r, r.size, 50) else -1
-                if (sent < 0) conn.controlTransfer(0x21, 0x09, 0x0280, intf.id, r, r.size, 100)
+                if (sent < 0) conn.controlTransfer(0x21, 0x09, 0x0200 or (r[0].toInt() and 0xff), intf.id, r, r.size, 100)
             }
+        }
+
+        /**
+         * Touchpad haptics (output report 0x81, a pulse: side, on µs, off µs, repeats).
+         * Side 0 = right pad, 1 = left pad. Strength scales the pulse length.
+         */
+        private var lastHaptic = 0L
+        private fun pulse(side: Int, onUs: Int, offUs: Int = 0, repeat: Int = 1, force: Boolean = false) {
+            if (!prefs.steamTouchpadHaptics) return
+            val now = System.currentTimeMillis()
+            if (!force && now - lastHaptic < 22) return
+            lastHaptic = now
+            val on = (onUs * prefs.steamHapticStrengthPct / 100).coerceIn(50, 8000)
+            val r = ByteArray(8)
+            r[0] = 0x81.toByte(); r[1] = side.toByte()
+            r[2] = on.toByte(); r[3] = (on shr 8).toByte()
+            r[4] = offUs.toByte(); r[5] = (offUs shr 8).toByte()
+            r[6] = repeat.toByte(); r[7] = (repeat shr 8).toByte()
+            sendOutput(r)
         }
 
         private fun handle(d: ByteArray, n: Int) {
@@ -492,14 +518,20 @@ object SteamControllerDriver {
                     accY += -my * k
                     dx = accX.toInt(); dy = accY.toInt()
                     accX -= dx; accY -= dy
+                    // A light tick every ~30 px of pointer travel, like a trackball notch
+                    travel += kotlin.math.sqrt((dx * dx + dy * dy).toFloat())
+                    if (travel >= 30f) { travel = 0f; pulse(0, 260) }
                 }
                 fx = nfx; fy = nfy
-            } else { accX = 0f; accY = 0f }
+            } else { accX = 0f; accY = 0f; travel = 0f }
+            // A soft bump when a finger lands on the right pad, so you can feel the mouse is active
+            if (rDown && !rTouch) pulse(0, 400, force = true)
             rTouch = rDown
             if (lDown) {
                 if (lTouch) {
                     accWheel += (lpy - ly) / 4500f
                     wheel = accWheel.toInt(); accWheel -= wheel
+                    if (wheel != 0) pulse(1, 300)   // a notch per scroll step
                 }
                 ly = lpy
             } else accWheel = 0f
@@ -508,6 +540,14 @@ object SteamControllerDriver {
             var buttons = 0
             if ((b and 0x400000L) != 0L) buttons = buttons or 1   // right pad click → left click
             if ((b and 0x4000000L) != 0L) buttons = buttons or 2  // left pad click → right click
+            // Firm "click" when a pad button goes down, a lighter one when it comes back up
+            if (buttons != lastClickButtons) {
+                val pressed = buttons and lastClickButtons.inv()
+                val both = buttons or lastClickButtons
+                val side = if ((both and 2) != 0 && (both and 1) == 0) 1 else 0   // left pad = right-click
+                if (pressed != 0) pulse(side, 2200, 900, 2, force = true) else pulse(side, 900, force = true)
+                lastClickButtons = buttons
+            }
             if (dx == 0 && dy == 0 && wheel == 0 && buttons == mouseButtons) return
             mouseButtons = buttons
             ensureMouse()
