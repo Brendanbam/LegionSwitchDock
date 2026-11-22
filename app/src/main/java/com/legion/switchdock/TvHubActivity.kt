@@ -960,7 +960,7 @@ private fun SwitchTvHubScreen(
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
-                                text = if (isGlasses) "LEGION XR" else "LEGION SWITCH DOCK  •  TV MODE",
+                                text = if (isGlasses) "LEGION XR" else "LEGION  /  TV",
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp,
@@ -1316,13 +1316,12 @@ private fun SwitchTvHubScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     ButtonPrompt("A", "Launch")
                     ButtonPrompt("B", "Back")
-                    ButtonPrompt("L/R", "Reorder")
-                    ButtonPrompt("X", "Unpin")
-                    ButtonPrompt("Y", "All Apps")
-                    ButtonPrompt("Start", "Quick Menu")
+                    ButtonPrompt("X", "Pin / Unpin")
+                    ButtonPrompt("Y", "Library")
+                    ButtonPrompt("Start", "Menu")
                 }
 
                 Text(
