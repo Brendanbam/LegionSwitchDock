@@ -1501,8 +1501,8 @@ private fun SwitchTvHubScreen(
                         LazyRow(
                             state = rowListState,
                             modifier = Modifier.fillMaxWidth(),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            contentPadding = PaddingValues(horizontal = 22.dp, vertical = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(13.dp)
                         ) {
                             itemsIndexed(pinnedApps, key = { _, app -> app.packageName }) { index, app ->
                                 SwitchAppTile(
@@ -2610,33 +2610,39 @@ private fun AllAppsDrawerOverlay(
 
 @Composable
 private fun ButtonPrompt(button: String, label: String, theme: HubTheme) {
+    val keyColor = when (button) {
+        "A" -> Color(0xFF4DF29A)
+        "B" -> Color(0xFFF3F1FF)
+        "X" -> Color(0xFF22D6FF)
+        "Y" -> Color(0xFFFFCE51)
+        "L1/R1" -> Color(0xFFCF9DFF)
+        else -> Color(0xFFEEE4FF)
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         Surface(
-            color = theme.surfaceElevated,
-            shape = RoundedCornerShape(7.dp),
-            border = BorderStroke(1.dp, theme.borderSubtle),
-            modifier = Modifier.height(24.dp)
+            color = Color(0xE0101029),
+            shape = RoundedCornerShape(50),
+            border = BorderStroke(1.4.dp, keyColor.copy(alpha = .82f)),
+            modifier = Modifier.height(25.dp)
         ) {
             Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .padding(horizontal = 8.dp),
+                modifier = Modifier.fillMaxHeight().padding(horizontal = 9.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = button,
-                    color = theme.textPrimary,
-                    fontWeight = FontWeight.Bold,
+                    color = keyColor,
+                    fontWeight = FontWeight.ExtraBold,
                     fontSize = 11.sp
                 )
             }
         }
         Text(
             text = label,
-            color = theme.textSecondary,
+            color = theme.textPrimary,
             fontSize = 12.sp,
             fontWeight = FontWeight.Medium
         )
