@@ -1,0 +1,44 @@
+name: TV UI Preview APK
+
+on:
+  push:
+    branches: [ tv-ui-preview-v1 ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout preview branch
+        uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build signed debug APK using existing app ID
+        run: gradle assembleDebug --stacktrace -PappVersionCode=$((1000000 + GITHUB_RUN_NUMBER))
+      - name: Upload preview APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LegionSwitchDock-TV-Preview
+          path: app/build/outputs/apk/debug/LegionSwitchDock-debug.apk
+      - name: Publish separate GitHub pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="tv-ui-preview-v1.${GITHUB_RUN_NUMBER}"
+          cp app/build/outputs/apk/debug/LegionSwitchDock-debug.apk "LegionSwitchDock-TV-Preview-${TAG}.apk"
+          gh release create "$TAG" "LegionSwitchDock-TV-Preview-${TAG}.apk" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "Legion Switch Dock TV UI Preview ${TAG}" \
+            --notes "Controller-first TV UI preview. Same Android application ID as stable; installs as an update. Stable release remains available. Android may prevent downgrading without uninstalling (which can erase app data)."
