@@ -85,6 +85,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.draw.clip
@@ -93,6 +94,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -1634,64 +1637,135 @@ private fun SwitchTvHubScreen(
     }
 }
 
-/** Theme-aware cinematic horizon, kept completely black for see-through XR mode. */
+/** Full-bleed cosmic panorama. Theme-aware, deterministic and static at rest.
+ * Designed for external 16:9 screens without an animated rendering workload. */
 @Composable
 private fun ConsoleAmbientBackdrop(
     theme: HubTheme,
     isGlasses: Boolean,
     modifier: Modifier = Modifier
 ) {
-    if (isGlasses) return
+    if (isGlasses) return // Keep XR's black / transparent presentation intact.
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
-        val glowCenter = Offset(w * 0.76f, h * 0.43f)
+        val magenta = Color(0xFFB64AFF)
+        val cyan = Color(0xFF00DEFF)
+
+        drawRect(Brush.verticalGradient(
+            listOf(Color(0xFF040518), Color(0xFF130C37), Color(0xFF39206E), Color(0xFF090B25)),
+            startY = 0f, endY = h
+        ))
+        // Large nebula clouds behind a ringed celestial body.
+        listOf(
+            Triple(Offset(w * .20f,h * .21f), h * .40f, magenta),
+            Triple(Offset(w * .55f,h * .36f), h * .48f, Color(0xFF5936CC)),
+            Triple(Offset(w * .89f,h * .36f), h * .40f, cyan),
+            Triple(Offset(w * .46f,h * .61f), h * .30f, magenta)
+        ).forEach { (center, radius, tint) ->
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(tint.copy(alpha = .32f), tint.copy(alpha = .10f), Color.Transparent),
+                    center = center, radius = radius
+                ),
+                center = center, radius = radius
+            )
+        }
+        // Planet and orbital rings—located behind the showcase, as in the concept.
+        val planetCenter = Offset(w * .67f, h * .31f)
+        val planetR = h * .26f
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(theme.accent.copy(alpha = 0.22f), theme.accent.copy(alpha = 0.07f), Color.Transparent),
-                center = glowCenter,
-                radius = w * 0.43f
+                listOf(Color(0xFF7940E1), Color(0xFF25205D), Color(0xFF090D31)),
+                center = Offset(planetCenter.x-planetR*.45f,planetCenter.y-planetR*.50f),
+                radius = planetR*1.67f
             ),
-            center = glowCenter,
-            radius = w * 0.43f
+            radius = planetR, center = planetCenter
         )
-        // A wide vanishing-point horizon creates cinematic depth on a TV.
-        val horizon = h * 0.80f
-        for (i in 0..14) {
-            val fraction = i / 14f
-            val endX = w * fraction
-            drawLine(
-                color = theme.accent.copy(alpha = 0.035f + fraction * 0.02f),
-                start = Offset(w * 0.58f, horizon),
-                end = Offset(endX, h),
-                strokeWidth = 1.dp.toPx()
-            )
+        drawCircle(
+            color = Color(0xFFB37FFF).copy(alpha = .68f),
+            center = planetCenter,
+            radius = planetR,
+            style = Stroke(width = 2.dp.toPx())
+        )
+        rotate(-19f, pivot = planetCenter) {
+            for (ring in 0..2) {
+                drawOval(
+                    color = if (ring == 1) cyan.copy(alpha = .48f) else magenta.copy(alpha = .58f),
+                    topLeft = Offset(planetCenter.x-planetR*1.85f,planetCenter.y-planetR*(.38f+ring*.11f)),
+                    size = Size(planetR*3.7f, planetR*(.76f+ring*.22f)),
+                    style = Stroke(width = (if (ring==1) 2.8.dp else 2.dp).toPx())
+                )
+            }
         }
-        for (i in 1..7) {
-            val t = i / 7f
-            val y = horizon + (h - horizon) * t * t
-            drawLine(
-                color = theme.accent.copy(alpha = 0.04f + t * 0.045f),
-                start = Offset(0f, y),
-                end = Offset(w, y),
-                strokeWidth = 1.dp.toPx()
-            )
-        }
-        for (i in 0..55) {
-            val x = w * (((i * 71 + 13) % 101) / 101f)
-            val y = h * (((i * 41 + 19) % 97) / 97f) * 0.78f
+        drawCircle(
+            brush = Brush.radialGradient(
+                listOf(Color(0xFFC788F8), Color(0xFF39245B), Color(0xFF100B31)),
+                center = Offset(w*.89f,h*.14f), radius = h*.09f
+            ),
+            center = Offset(w*.89f,h*.14f), radius = h*.055f
+        )
+        // Stars, deliberately scattered without random state to avoid visual jitter.
+        for (i in 0..169) {
+            val x = w * (((i * 73 + 17) % 193) / 193f)
+            val y = h * (((i * 131 + 29) % 167) / 167f) * .73f
+            val big = i % 13 == 0
             drawCircle(
-                color = Color.White.copy(alpha = if (i % 7 == 0) 0.42f else 0.10f),
-                radius = if (i % 7 == 0) 1.3.dp.toPx() else 0.65.dp.toPx(),
-                center = Offset(x, y)
+                color = (if (i%4==0) cyan else Color.White).copy(alpha = if (big) .75f else .26f),
+                radius = if (big) 1.4.dp.toPx() else .60.dp.toPx(),
+                center = Offset(x,y)
+            )
+        }
+        // Layered mountain silhouettes.
+        val back = Path().apply {
+            moveTo(0f,h*.71f)
+            lineTo(w*.11f,h*.59f);lineTo(w*.22f,h*.70f)
+            lineTo(w*.34f,h*.53f);lineTo(w*.45f,h*.71f)
+            lineTo(w*.59f,h*.60f);lineTo(w*.68f,h*.72f)
+            lineTo(w*.80f,h*.52f);lineTo(w*.90f,h*.68f)
+            lineTo(w,h*.55f);lineTo(w,h);lineTo(0f,h);close()
+        }
+        drawPath(back, Brush.verticalGradient(listOf(Color(0xFF332363),Color(0xFF0B102A)),h*.50f,h))
+        val front = Path().apply {
+            moveTo(0f,h*.77f);lineTo(w*.12f,h*.66f);lineTo(w*.24f,h*.78f)
+            lineTo(w*.33f,h*.68f);lineTo(w*.47f,h*.77f)
+            lineTo(w*.60f,h*.70f);lineTo(w*.75f,h*.80f)
+            lineTo(w*.87f,h*.65f);lineTo(w,h*.74f)
+            lineTo(w,h);lineTo(0f,h);close()
+        }
+        drawPath(front, Color(0xFF080D28))
+        // Synthwave vanishing-point floor with luminous magenta and cyan lanes.
+        val horizon = h*.76f
+        drawRect(
+            Brush.verticalGradient(listOf(Color(0x4400DFFF),Color(0xCC07071E)),horizon,h),
+            topLeft = Offset(0f,horizon),size = Size(w,h-horizon)
+        )
+        for (i in -10..10) {
+            drawLine(
+                color = if (i%4==0) cyan.copy(alpha=.48f) else magenta.copy(alpha=.46f),
+                start = Offset(w*.54f,horizon),
+                end = Offset(w*.5f + i*w*.115f,h),
+                strokeWidth = if (i%4==0) 1.6.dp.toPx() else 1.dp.toPx()
+            )
+        }
+        for (i in 1..9) {
+            val t = i/9f
+            val y = horizon + (h-horizon)*t*t
+            drawLine(
+                color = (if (i%3==0) cyan else magenta).copy(alpha=.20f+t*.40f),
+                start = Offset(0f,y),end = Offset(w,y),
+                strokeWidth = (1f+t).dp.toPx()
             )
         }
         drawLine(
-            color = theme.accent.copy(alpha = 0.20f),
-            start = Offset(0f, horizon),
-            end = Offset(w, horizon),
-            strokeWidth = 1.dp.toPx()
+            brush = Brush.horizontalGradient(listOf(Color.Transparent,magenta,cyan,Color.Transparent)),
+            start = Offset(0f,horizon),end = Offset(w,horizon),
+            strokeWidth = 2.dp.toPx()
         )
+        // Darker reading field left, preserving title/description contrast.
+        drawRect(Brush.horizontalGradient(
+            listOf(Color(0xF308071B),Color(0xAB0A0921),Color(0x2508071B),Color.Transparent)
+        ))
     }
 }
 
