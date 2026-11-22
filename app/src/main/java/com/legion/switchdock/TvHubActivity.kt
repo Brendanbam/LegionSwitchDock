@@ -1383,7 +1383,7 @@ private fun SwitchTvHubScreen(
                             label = "featuredArtworkFade"
                         ) { index ->
                             val app = pinnedApps.getOrNull(index)
-                            val showArtemisPoster = app?.packageName == AppRepository.ARTEMIS_LEGION_PACKAGE
+                            val showArtemisPoster = !isGlasses && app?.packageName == AppRepository.ARTEMIS_LEGION_PACKAGE
                             Box(Modifier.fillMaxSize()) {
                                 if (showArtemisPoster) {
                                     Image(
