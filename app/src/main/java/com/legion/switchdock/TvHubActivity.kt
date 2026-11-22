@@ -1240,9 +1240,11 @@ private fun SwitchTvHubScreen(
             ) {
                 val heroApp = pinnedApps.getOrNull(safeTileIndex)
                 val isPc = focusedPackage == AppRepository.PLAY_PC_ID
+                val isArtemis = focusedPackage == AppRepository.ARTEMIS_LEGION_PACKAGE
                 val isStream = isPc || (focusedPackage != null && ArtemisBoostManager.isStreamingPackage(focusedPackage))
                 val eyebrowText = when {
                     isPc -> "DIRECT LINK  /  ARTEMIS LEGION"
+                    isArtemis -> "STREAMING MODE  /  ARTEMIS LEGION"
                     isStream -> "STREAMING  /  LOW LATENCY"
                     heroApp != null -> "LIBRARY  /  FAVORITE ${safeTileIndex + 1}"
                     safeTileIndex == pinnedApps.size -> "EXPLORE  /  INSTALLED APPS"
@@ -1250,6 +1252,7 @@ private fun SwitchTvHubScreen(
                 }
                 val subtitleText = when {
                     isPc -> "Your PC is one press away. Pick up exactly where you left off."
+                    isArtemis -> "Stream Artemis Legion to your TV. Your games, worlds and content on the big screen."
                     isStream -> "Launch your stream on the big screen with optimized connectivity."
                     heroApp != null -> "Your next session starts here. Press A to launch on the TV."
                     safeTileIndex == pinnedApps.size -> "Browse ${allApps.size} installed apps and choose what stays in your dock."
@@ -1275,7 +1278,7 @@ private fun SwitchTvHubScreen(
                                 letterSpacing = 2.sp
                             )
                         }
-                        Crossfade(targetState = focusedTitle, animationSpec = tween(250), label = "orbitHeroTitle") { title ->
+                        Crossfade(targetState = if (isArtemis) "Artemis Legion" else focusedTitle, animationSpec = tween(250), label = "orbitHeroTitle") { title ->
                             Text(
                                 text = title,
                                 color = activeTheme.textPrimary,
@@ -1380,11 +1383,9 @@ private fun SwitchTvHubScreen(
                             label = "featuredArtworkFade"
                         ) { index ->
                             val app = pinnedApps.getOrNull(index)
+                            val showArtemisPoster = app?.packageName == AppRepository.ARTEMIS_LEGION_PACKAGE
                             Box(Modifier.fillMaxSize()) {
-                                if (app != null &&
-                                    (app.packageName == AppRepository.ARTEMIS_LEGION_PACKAGE ||
-                                        app.packageName == AppRepository.PLAY_PC_ID)
-                                ) {
+                                if (showArtemisPoster) {
                                     Image(
                                         painter = painterResource(R.drawable.orbit_artemis_poster),
                                         contentDescription = "Original Artemis Legion showcase illustration",
@@ -1406,7 +1407,8 @@ private fun SwitchTvHubScreen(
                                 } else {
                                     Box(Modifier.fillMaxSize().background(activeTheme.surfaceElevated))
                                 }
-                                // Framed card remains readable with either real app art or original scene.
+                                // The Artemis poster has its own title artwork.
+                                if (!showArtemisPoster) {
                                 Box(
                                     Modifier.fillMaxSize().background(
                                         Brush.verticalGradient(
@@ -1461,6 +1463,7 @@ private fun SwitchTvHubScreen(
                                         fontFamily = FontFamily.Monospace,
                                         letterSpacing = 1.2.sp
                                     )
+                                }
                                 }
                             }
                         }
