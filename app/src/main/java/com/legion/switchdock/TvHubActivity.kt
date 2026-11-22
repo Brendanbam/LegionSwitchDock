@@ -1417,8 +1417,39 @@ private fun SwitchTvHubScreen(
                                 } else {
                                     Box(Modifier.fillMaxSize().background(activeTheme.surfaceElevated))
                                 }
-                                // The Artemis poster has its own title artwork.
-                                if (!showArtemisPoster) {
+                                // The new detailed poster is artwork only; use real Compose
+                                // text to keep its title crisp on TV and small displays.
+                                if (showArtemisPoster) {
+                                    Box(
+                                        Modifier.fillMaxSize().background(
+                                            Brush.verticalGradient(
+                                                listOf(Color.Transparent, Color.Transparent, Color(0xDB06091F))
+                                            )
+                                        )
+                                    )
+                                    Column(
+                                        modifier = Modifier.align(Alignment.BottomStart)
+                                            .padding(start = 22.dp, bottom = 16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(
+                                            "ARTEMIS LEGION",
+                                            color = Color.White,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 26.sp,
+                                            letterSpacing = 1.1.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            "READY TO PLAY",
+                                            color = Color(0xFFD7C0F3),
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 11.sp,
+                                            letterSpacing = 1.2.sp
+                                        )
+                                    }
+                                } else {
                                 Box(
                                     Modifier.fillMaxSize().background(
                                         Brush.verticalGradient(
