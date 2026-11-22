@@ -1363,56 +1363,103 @@ private fun SwitchTvHubScreen(
                             )
                         }
                     }
-                    // Featured visual uses real artwork when the app supplies it; otherwise
-                    // an original theme-tinted orbital composition, not an empty icon box.
+                    // Giant neon-framed showcase, matching the concept rather than a floating app icon.
                     Box(
-                        modifier = Modifier.weight(0.95f).fillMaxHeight(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (!isGlasses) {
-                            OrbitArtwork(
-                                theme = activeTheme,
-                                modifier = Modifier.fillMaxSize()
+                        modifier = Modifier
+                            .weight(1.08f)
+                            .fillMaxHeight(0.93f)
+                            .shadow(
+                                elevation = 18.dp,
+                                shape = RoundedCornerShape(24.dp),
+                                ambientColor = Color(0xFFAC39FF),
+                                spotColor = Color(0xFF05CBFF)
                             )
-                        }
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(Color(0xFF080D2A))
+                            .border(
+                                width = 2.5.dp,
+                                brush = Brush.linearGradient(
+                                    listOf(Color(0xFFE879FF),Color(0xFF9F59F3),Color(0xFF10E2FC))
+                                ),
+                                shape = RoundedCornerShape(24.dp)
+                            )
+                    ) {
                         Crossfade(
                             targetState = safeTileIndex,
-                            animationSpec = tween(320),
-                            label = "orbitShowcase"
+                            animationSpec = tween(340),
+                            label = "featuredArtworkFade"
                         ) { index ->
                             val app = pinnedApps.getOrNull(index)
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Box(Modifier.fillMaxSize()) {
                                 if (app?.banner != null) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth(0.84f)
-                                            .height(180.dp)
-                                            .clip(RoundedCornerShape(21.dp))
-                                            .border(2.dp, activeTheme.accent.copy(alpha = 0.65f), RoundedCornerShape(21.dp))
-                                    ) {
-                                        Image(
-                                            bitmap = app.banner,
-                                            contentDescription = app.label,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-                                        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, activeTheme.bgTop.copy(alpha = 0.45f)))))
-                                    }
-                                } else if (app != null) {
-                                    Box(
-                                        Modifier.size(132.dp).clip(RoundedCornerShape(33.dp))
-                                            .background(activeTheme.surfaceGlass)
-                                            .border(2.dp, activeTheme.accent.copy(alpha = 0.7f), RoundedCornerShape(33.dp)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Image(bitmap = app.icon, contentDescription = app.label, modifier = Modifier.size(90.dp))
-                                    }
+                                    Image(
+                                        bitmap = app.banner,
+                                        contentDescription = app.label,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else if (!isGlasses) {
+                                    CosmicCityArtwork(
+                                        theme = activeTheme,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
                                 } else {
-                                    Icon(
-                                        if (index == pinnedApps.size) Icons.Rounded.Apps else Icons.Rounded.Settings,
-                                        contentDescription = focusedTitle,
-                                        tint = activeTheme.accent,
-                                        modifier = Modifier.size(90.dp)
+                                    Box(Modifier.fillMaxSize().background(activeTheme.surfaceElevated))
+                                }
+                                // Framed card remains readable with either real app art or original scene.
+                                Box(
+                                    Modifier.fillMaxSize().background(
+                                        Brush.verticalGradient(
+                                            listOf(Color(0x32080927), Color.Transparent, Color(0xE6080920))
+                                        )
+                                    )
+                                )
+                                Row(
+                                    modifier = Modifier.align(Alignment.TopStart)
+                                        .padding(18.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(9.dp)
+                                ) {
+                                    if (app != null) {
+                                        Image(
+                                            bitmap = app.icon,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(34.dp).clip(RoundedCornerShape(9.dp))
+                                        )
+                                    } else {
+                                        Icon(
+                                            if (index == pinnedApps.size) Icons.Rounded.Apps else Icons.Rounded.Settings,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(30.dp)
+                                        )
+                                    }
+                                    Text(
+                                        text = "LEGION  /  FEATURED",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        letterSpacing = 1.4.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Column(
+                                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 22.dp, bottom = 18.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = (app?.label ?: if (index == pinnedApps.size) "YOUR LIBRARY" else "QUICK MENU").uppercase(),
+                                        color = Color.White,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 26.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = if (app != null) "READY TO PLAY" else "EXPLORE & CUSTOMIZE",
+                                        color = Color(0xFFC8B4EA),
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        letterSpacing = 1.2.sp
                                     )
                                 }
                             }
@@ -1769,79 +1816,119 @@ private fun ConsoleAmbientBackdrop(
     }
 }
 
-/** Original abstract orbital artwork. Lightweight Canvas, no network images or bitmap resources. */
+/** Built-in original sci-fi vista for apps with no launcher banner.
+ * A glowing portal and city skyline make every selection feel like a feature poster. */
 @Composable
-private fun OrbitArtwork(theme: HubTheme, modifier: Modifier = Modifier) {
+private fun CosmicCityArtwork(theme: HubTheme, modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
-        val center = Offset(size.width * 0.53f, size.height * 0.50f)
-        val radius = minOf(size.width, size.height) * 0.38f
+        val w=size.width
+        val h=size.height
+        val neon = Color(0xFFDC53FF)
+        val cyan = Color(0xFF10E3FF)
+        drawRect(Brush.verticalGradient(
+            listOf(Color(0xFF07102D),Color(0xFF212063),Color(0xFF56147B),Color(0xFF0B123A))
+        ))
+        listOf(
+            Triple(Offset(w*.31f,h*.28f),h*.45f,neon),
+            Triple(Offset(w*.79f,h*.43f),h*.55f,cyan),
+            Triple(Offset(w*.72f,h*.71f),h*.38f,neon)
+        ).forEach{(p,r,color)->
+            drawCircle(Brush.radialGradient(
+                listOf(color.copy(alpha=.40f),color.copy(alpha=.09f),Color.Transparent),p,r
+            ),radius=r,center=p)
+        }
+        val p=Offset(w*.66f,h*.45f)
+        val planetR=h*.32f
+        drawCircle(Brush.radialGradient(
+            listOf(Color(0xFFB15BFF),Color(0xFF413E91),Color(0xFF071E52)),
+            center=Offset(p.x-planetR*.42f,p.y-planetR*.46f),
+            radius=planetR*1.64f
+        ),radius=planetR,center=p)
         drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(theme.accent.copy(alpha = 0.30f), theme.accent.copy(alpha = 0.05f), Color.Transparent),
-                center = center,
-                radius = radius * 1.30f
+            brush=Brush.sweepGradient(listOf(neon,cyan,neon),center=p),
+            radius=planetR*.98f, center=p, style=Stroke(width=3.dp.toPx())
+        )
+        rotate(-23f,pivot=p){
+            drawOval(
+                color=neon.copy(alpha=.84f),
+                topLeft=Offset(p.x-planetR*1.75f,p.y-planetR*.37f),
+                size=Size(planetR*3.5f,planetR*.74f),
+                style=Stroke(width=3.dp.toPx())
+            )
+            drawOval(
+                color=cyan.copy(alpha=.56f),
+                topLeft=Offset(p.x-planetR*1.65f,p.y-planetR*.31f),
+                size=Size(planetR*3.3f,planetR*.62f),
+                style=Stroke(width=1.5.dp.toPx())
+            )
+        }
+        for (i in 0..85){
+            val x=w*(((i*31+7)%101)/101f)
+            val y=h*(((i*57+17)%97)/97f)*.68f
+            drawCircle(Color.White.copy(alpha=if(i%9==0).75f else .27f),
+                radius=if(i%9==0)1.2.dp.toPx() else .6.dp.toPx(),center=Offset(x,y))
+        }
+        // Citadel base and reflective causeway.
+        val base=Path().apply{
+            moveTo(w*.12f,h*.91f);lineTo(w*.31f,h*.78f)
+            lineTo(w*.76f,h*.78f);lineTo(w*.95f,h*.91f)
+            lineTo(w,h);lineTo(0f,h);close()
+        }
+        drawPath(base,Brush.verticalGradient(
+            listOf(Color(0xFF312361),Color(0xFF050B21)),h*.76f,h
+        ))
+        drawLine(brush=Brush.horizontalGradient(
+            listOf(Color.Transparent,neon,cyan,Color.Transparent)
+        ),start=Offset(w*.15f,h*.88f),end=Offset(w*.95f,h*.88f),
+        strokeWidth=3.dp.toPx())
+        // Spires have varied heights and luminous window seams.
+        for(i in 0..19){
+            val centerX=w*(.17f+i*.037f)
+            val towerHeight=h*(.09f+(((i*13+7)%11)/11f)*.31f)
+            val tw=w*(if(i%4==0).022f else .013f)
+            val top=h*.85f-towerHeight
+            drawRect(
+                brush=Brush.verticalGradient(listOf(Color(0xFF171F5F),Color(0xFF06102D))),
+                topLeft=Offset(centerX,top),size=Size(tw,towerHeight)
+            )
+            drawLine(color=if(i%3==0)cyan.copy(alpha=.85f)else neon.copy(alpha=.70f),
+                start=Offset(centerX+tw*.5f,top),
+                end=Offset(centerX+tw*.5f,h*.85f),
+                strokeWidth=1.dp.toPx())
+            if(i%4==0){
+                drawLine(color=cyan.copy(alpha=.64f),
+                    start=Offset(centerX+tw*.5f,top-h*.07f),
+                    end=Offset(centerX+tw*.5f,top),
+                    strokeWidth=2.dp.toPx())
+            }
+        }
+        // Dominant central tower reaches into the planet's halo.
+        val sx=w*.61f
+        val spire=Path().apply{
+            moveTo(sx-w*.023f,h*.84f)
+            lineTo(sx-w*.013f,h*.29f)
+            lineTo(sx,h*.18f)
+            lineTo(sx+w*.012f,h*.29f)
+            lineTo(sx+w*.024f,h*.84f);close()
+        }
+        drawPath(spire,Brush.horizontalGradient(
+            listOf(Color(0xFF0F245A),Color(0xFF592F8D),Color(0xFF071539))
+        ))
+        drawLine(color=cyan.copy(alpha=.92f),
+            start=Offset(sx,h*.21f),end=Offset(sx,h*.84f),
+            strokeWidth=2.dp.toPx())
+        drawCircle(
+            brush=Brush.radialGradient(
+                listOf(cyan.copy(alpha=.63f),Color.Transparent),
+                center=Offset(sx,h*.78f), radius=h*.23f
             ),
-            radius = radius * 1.30f,
-            center = center
+            center=Offset(sx,h*.78f),radius=h*.23f
         )
-        for (ring in 0..3) {
-            drawCircle(
-                color = theme.accent.copy(alpha = 0.32f - ring * 0.065f),
-                radius = radius * (0.57f + ring * 0.22f),
-                center = center,
-                style = androidx.compose.ui.graphics.drawscope.Stroke(width = (if (ring == 1) 2.dp else 1.dp).toPx())
-            )
-        }
-        drawLine(
-            color = theme.accent.copy(alpha = 0.40f),
-            start = Offset(center.x - radius * 1.2f, center.y),
-            end = Offset(center.x + radius * 1.2f, center.y),
-            strokeWidth = 1.dp.toPx()
-        )
-        drawLine(
-            color = theme.accent.copy(alpha = 0.25f),
-            start = Offset(center.x, center.y - radius * 1.15f),
-            end = Offset(center.x, center.y + radius * 1.15f),
-            strokeWidth = 1.dp.toPx()
-        )
-        // Metallic orbit sweeps add depth without continuous animations.
-        val upperArc = Path().apply {
-            moveTo(size.width * 0.04f, size.height * 0.62f)
-            cubicTo(
-                size.width * 0.22f, size.height * 0.06f,
-                size.width * 0.84f, size.height * 0.05f,
-                size.width * 0.98f, size.height * 0.34f
-            )
-        }
-        drawPath(
-            upperArc,
-            brush = Brush.horizontalGradient(
-                listOf(Color.Transparent, theme.accent.copy(alpha = 0.57f), Color.Transparent)
-            ),
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
-        )
-        val lowerArc = Path().apply {
-            moveTo(size.width * 0.08f, size.height * 0.72f)
-            cubicTo(
-                size.width * 0.44f, size.height * 1.18f,
-                size.width * 0.84f, size.height * 0.97f,
-                size.width * 0.99f, size.height * 0.48f
-            )
-        }
-        drawPath(
-            lowerArc,
-            color = theme.accent.copy(alpha = 0.30f),
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.4.dp.toPx())
-        )
-        for (i in 1..28) {
-            val x = size.width * (((i * 37) % 97) / 97f)
-            val y = size.height * (((i * 61) % 89) / 89f)
-            drawCircle(
-                color = Color.White.copy(alpha = if (i % 5 == 0) 0.65f else 0.20f),
-                radius = if (i % 5 == 0) 1.6.dp.toPx() else 0.8.dp.toPx(),
-                center = Offset(x, y)
-            )
-        }
+        // Foreground depth fade keeps title readable.
+        drawRect(Brush.verticalGradient(
+            listOf(Color.Transparent,Color(0x1B061128),Color(0xA900071B)),
+            startY=h*.45f,endY=h
+        ))
     }
 }
 
