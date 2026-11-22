@@ -121,6 +121,11 @@ class DockPreferences(private val context: Context) {
         get() = prefs.getBoolean("steam_touchpad_mouse", true)
         set(value) = prefs.edit().putBoolean("steam_touchpad_mouse", value).apply()
 
+    /** Touchpad mouse speed in percent (60 = slow, 100 = normal, 150 = fast). */
+    var steamMouseSpeedPct: Int
+        get() = prefs.getInt("steam_mouse_speed", 100)
+        set(value) = prefs.edit().putInt("steam_mouse_speed", value.coerceIn(30, 250)).apply()
+
     var glassesScreenSizePct: Int
         get() = prefs.getInt(KEY_GLASSES_SCREEN_SIZE, 100)
         set(value) = prefs.edit().putInt(KEY_GLASSES_SCREEN_SIZE, value.coerceIn(50, 100)).apply()

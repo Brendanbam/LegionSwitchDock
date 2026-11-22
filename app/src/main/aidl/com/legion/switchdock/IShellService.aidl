@@ -14,4 +14,8 @@ interface IShellService {
     void uhidDestroyAll() = 5;
     String lastError() = 6;
     void uhidSetListener(IUhidListener listener) = 7;
+    /** Same as uhidCreateOnBus, with the device's "phys" location (used to link it to a screen). */
+    int uhidCreateWithPhys(String name, String phys, int bus, int vendor, int product, in byte[] descriptor) = 9;
+    /** Moves the pointer of the input device at this location to a display (-1 = back to default). "ok" or an error. */
+    String pointerToDisplay(String inputPort, int displayId) = 10;
 }

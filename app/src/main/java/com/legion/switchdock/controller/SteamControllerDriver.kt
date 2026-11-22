@@ -57,6 +57,26 @@ object SteamControllerDriver {
         }
     }
     @Volatile private var listenerShell: IShellService? = null
+
+    // ---- Touchpad pointer: Android draws it on the tablet unless the mouse is linked to the TV ----
+    private const val MOUSE_PHYS = "legion-steam-touchpad"
+    @Volatile private var pointerDisplayId = -1
+
+    /** Dock service: the TV / glasses display id while docked, or -1 when undocked. */
+    fun setPointerDisplay(context: Context, displayId: Int) {
+        if (displayId == pointerDisplayId) return
+        pointerDisplayId = displayId
+        applyPointerDisplay(context.applicationContext)
+    }
+
+    internal fun applyPointerDisplay(ctx: Context) {
+        val shell = ShizukuHelper.shellServiceOrNull(ctx) ?: return
+        val id = pointerDisplayId
+        Thread {
+            val result = runCatching { shell.pointerToDisplay(MOUSE_PHYS, id) }.getOrElse { it.message ?: "failed" }
+            if (result != "ok") Log.w(TAG, "pointer to display $id: $result")
+        }.start()
+    }
     internal fun ensureListener(shell: IShellService) {
         if (listenerShell === shell) return
         runCatching { shell.uhidSetListener(uhidListener); listenerShell = shell }
@@ -237,6 +257,8 @@ object SteamControllerDriver {
         private var rTouch = false; private var rx = 0; private var ry = 0
         private var lTouch = false; private var ly = 0
         private var accX = 0f; private var accY = 0f; private var accWheel = 0f
+        private var fx = 0f; private var fy = 0f        // smoothed finger position
+        private var touchFrames = 0
         private var mouseButtons = 0
 
         // rumble (0..100 from the system), resent every 40 ms: the controller stops on its own after ~50 ms
@@ -277,8 +299,10 @@ object SteamControllerDriver {
 
         private fun ensureMouse() {
             if (mouse > 0) return
-            mouse = callShell { it.uhidCreate("Steam Controller Touchpad", VIRTUAL_VID, VIRTUAL_MOUSE_PID, MOUSE_DESCRIPTOR) } ?: 0
+            mouse = callShell { it.uhidCreateWithPhys("Steam Controller Touchpad", MOUSE_PHYS, 0x03, VIRTUAL_VID, VIRTUAL_MOUSE_PID, MOUSE_DESCRIPTOR) } ?: 0
             if (mouse < 0) mouse = 0
+            // Show the pointer on the TV once Android has picked up the new mouse
+            if (mouse > 0) Handler(Looper.getMainLooper()).postDelayed({ applyPointerDisplay(ctx) }, 400)
         }
 
         /** Controller asleep/off: keep the virtual controller (so apps and focus stay put), just centre it. */
@@ -449,21 +473,32 @@ object SteamControllerDriver {
         private fun touchpadMouse(b: Long, rpx: Int, rpy: Int, lpy: Int) {
             val rDown = (b and 0x200000L) != 0L
             val lDown = (b and 0x2000000L) != 0L
-            val sens = 1f / 40f
+            // Base speed: a full swipe across the pad ≈ 600 px at Normal; slow movements are extra precise,
+            // fast flicks travel further (gentle acceleration). Positions are smoothed to remove jitter.
+            val speed = prefs.steamMouseSpeedPct / 100f
             var dx = 0; var dy = 0; var wheel = 0
             if (rDown) {
-                if (rTouch) {
-                    accX += (rpx - rx) * sens
-                    accY += -(rpy - ry) * sens
+                if (!rTouch) { fx = rpx.toFloat(); fy = rpy.toFloat(); touchFrames = 0 }
+                touchFrames++
+                val nfx = fx + (rpx - fx) * 0.35f
+                val nfy = fy + (rpy - fy) * 0.35f
+                // The first few frames of a touch are noisy as the finger lands
+                if (touchFrames > 3) {
+                    val mx = nfx - fx; val my = nfy - fy
+                    val mag = kotlin.math.sqrt(mx * mx + my * my)
+                    val accel = (0.45f + mag / 700f).coerceIn(0.45f, 1.8f)
+                    val k = speed * accel / 110f
+                    accX += mx * k
+                    accY += -my * k
                     dx = accX.toInt(); dy = accY.toInt()
                     accX -= dx; accY -= dy
                 }
-                rx = rpx; ry = rpy
+                fx = nfx; fy = nfy
             } else { accX = 0f; accY = 0f }
             rTouch = rDown
             if (lDown) {
                 if (lTouch) {
-                    accWheel += (lpy - ly) / 3000f
+                    accWheel += (lpy - ly) / 4500f
                     wheel = accWheel.toInt(); accWheel -= wheel
                 }
                 ly = lpy

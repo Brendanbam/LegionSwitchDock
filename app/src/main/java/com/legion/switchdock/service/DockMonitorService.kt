@@ -206,6 +206,7 @@ class DockMonitorService : Service() {
             val isNewConnection = activeExternalDisplayId != external.displayId ||
                 activeProfile != external.profile
             activeExternalDisplayId = external.displayId
+            com.legion.switchdock.controller.SteamControllerDriver.setPointerDisplay(this, external.displayId)
             activeProfile = external.profile
             if (isNewConnection) {
                 lastGlassesBatteryAlertPct = 101
@@ -302,6 +303,7 @@ class DockMonitorService : Service() {
         mainHandler.removeCallbacks(modeCheckRunnable)
         activeExternalDisplayId = null
         activeProfile = null
+        com.legion.switchdock.controller.SteamControllerDriver.setPointerDisplay(this, -1)
         lastAnnouncedMode = null
         updateNotification("Ready • Plug in your TV dock or XR glasses")
         ArtemisBoostManager.setBoostActive(this, false)

@@ -40,7 +40,39 @@ class ShizukuShellService : IShellService.Stub() {
     override fun uhidCreate(name: String, vendor: Int, product: Int, descriptor: ByteArray): Int =
         uhidCreateOnBus(name, 0x03, vendor, product, descriptor)
 
-    override fun uhidCreateOnBus(name: String, bus: Int, vendor: Int, product: Int, descriptor: ByteArray): Int {
+    override fun uhidCreateOnBus(name: String, bus: Int, vendor: Int, product: Int, descriptor: ByteArray): Int =
+        uhidCreateWithPhys(name, "", bus, vendor, product, descriptor)
+
+    override fun pointerToDisplay(inputPort: String, displayId: Int): String {
+        return try {
+            val binder = Class.forName("android.os.ServiceManager").getMethod("getService", String::class.java)
+                .invoke(null, "input") as android.os.IBinder
+            val im = Class.forName("android.hardware.input.IInputManager\$Stub")
+                .getMethod("asInterface", android.os.IBinder::class.java).invoke(null, binder)!!
+            val cls = im.javaClass
+            fun call(names: List<String>, vararg args: Any): Boolean {
+                for (n in names) {
+                    val m = cls.methods.firstOrNull { it.name == n && it.parameterTypes.size == args.size } ?: continue
+                    m.invoke(im, *args); return true
+                }
+                return false
+            }
+            // Clear any old link first
+            runCatching { call(listOf("removeUniqueIdAssociationByPort", "removeUniqueIdAssociation"), inputPort) }
+            if (displayId < 0) return "ok"
+            val dmg = Class.forName("android.hardware.display.DisplayManagerGlobal").getMethod("getInstance").invoke(null)!!
+            val info = dmg.javaClass.getMethod("getDisplayInfo", Int::class.java).invoke(dmg, displayId)
+                ?: return "display $displayId not found"
+            val uniqueId = info.javaClass.getField("uniqueId").get(info) as String
+            if (call(listOf("addUniqueIdAssociationByPort", "addUniqueIdAssociation"), inputPort, uniqueId)) "ok"
+            else "this Android version has no way to move the pointer"
+        } catch (e: Throwable) {
+            val c = (e as? java.lang.reflect.InvocationTargetException)?.targetException ?: e
+            "${c.javaClass.simpleName}: ${c.message}"
+        }
+    }
+
+    override fun uhidCreateWithPhys(name: String, phys: String, bus: Int, vendor: Int, product: Int, descriptor: ByteArray): Int {
         return try {
             val file = java.io.RandomAccessFile("/dev/uhid", "rw")
             val handle = nextHandle.getAndIncrement()
@@ -48,6 +80,7 @@ class ShizukuShellService : IShellService.Stub() {
             ev.putInt(0, 11) // UHID_CREATE2
             val n = name.toByteArray().copyOf(127.coerceAtMost(name.toByteArray().size))
             ev.position(4); ev.put(n)
+            if (phys.isNotEmpty()) { ev.position(4 + 128); ev.put(phys.toByteArray().copyOf(63.coerceAtMost(phys.length))) }
             val uniq = "legion-$handle".toByteArray()
             ev.position(4 + 192); ev.put(uniq)
             ev.putShort(4 + 256, descriptor.size.toShort())
@@ -215,7 +248,7 @@ object ShizukuHelper {
             .daemon(false)
             .processNameSuffix("shizuku_shell")
             .debuggable(false)
-            .version(3)
+            .version(4)
 
         runCatching {
             Shizuku.bindUserService(args, connection)

@@ -1137,6 +1137,19 @@ private fun SteamControllerSection() {
         subtitle = "Right pad moves the pointer, left pad scrolls. Click the right pad to click, the left pad to right-click.",
         checked = mouse
     ) { mouse = it; prefs.steamTouchpadMouse = it }
+    if (mouse) {
+        var speed by remember { mutableStateOf(prefs.steamMouseSpeedPct) }
+        Text(text = "Touchpad mouse speed", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(40 to "Slowest", 60 to "Slow", 100 to "Normal", 150 to "Fast").forEach { (pct, label) ->
+                val selected = pct == speed
+                OutlinedButton(
+                    onClick = { prefs.steamMouseSpeedPct = pct; speed = pct },
+                    border = BorderStroke(1.dp, if (selected) Color(0xFF00E5FF) else Color(0xFF374151))
+                ) { Text(label, color = if (selected) Color(0xFF00E5FF) else Color.White) }
+            }
+        }
+    }
 }
 
 /** Glasses screen size: how much of the glasses view apps fill. Smaller = a smaller screen floating further away. */
