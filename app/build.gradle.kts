@@ -32,13 +32,6 @@ android {
     }
 
     buildTypes {
-        create("preview") {
-            initWith(getByName("debug"))
-            applicationIdSuffix = ".preview"
-            versionNameSuffix = "-tv-preview"
-            resValue("string", "app_name", "Legion Switch Dock Preview")
-            signingConfig = signingConfigs.getByName("debug")
-        }
         debug {
             signingConfig = signingConfigs.getByName("debug")
         }
