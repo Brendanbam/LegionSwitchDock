@@ -1249,7 +1249,8 @@ private fun SwitchTvHubScreen(
             ) {
                 val heroApp = pinnedApps.getOrNull(safeTileIndex)
                 val isPc = focusedPackage == AppRepository.PLAY_PC_ID
-                val isArtemis = focusedPackage == AppRepository.ARTEMIS_LEGION_PACKAGE
+                val isArtemis = focusedPackage == AppRepository.ARTEMIS_LEGION_PACKAGE ||
+                    (heroApp?.label?.contains("Artemis", ignoreCase = true) == true)
                 val isStream = isPc || (focusedPackage != null && ArtemisBoostManager.isStreamingPackage(focusedPackage))
                 val eyebrowText = when {
                     isPc -> "DIRECT LINK  /  ARTEMIS LEGION"
@@ -1577,8 +1578,8 @@ private fun SwitchTvHubScreen(
                     ButtonPrompt("B", "Back", activeTheme)
                     ButtonPrompt("Y", "Library", activeTheme)
                     ButtonPrompt("X", "Pin / Unpin", activeTheme)
-                    ButtonPrompt("L1/R1", "Reorder", activeTheme)
-                    ButtonPrompt("Start", "Quick Menu", activeTheme)
+                    if (!compactHome) ButtonPrompt("L1/R1", "Reorder", activeTheme)
+                    ButtonPrompt("Start", if (compactHome) "Menu" else "Quick Menu", activeTheme)
                 }
 
                 Surface(
