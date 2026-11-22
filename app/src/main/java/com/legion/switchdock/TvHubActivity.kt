@@ -99,6 +99,7 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -941,56 +942,34 @@ private fun SwitchTvHubScreen(
                 )
             )
     ) {
-        ConsoleAmbientBackdrop(
-            theme = activeTheme,
-            isGlasses = isGlasses,
-            modifier = Modifier.fillMaxSize()
-        )
-
-        // Subtle ambient banner crossfade behind the hero canvas
-        Crossfade(
-            targetState = safeTileIndex,
-            animationSpec = tween(320),
-            label = "heroBackdrop"
-        ) { index ->
-            val app = pinnedApps.getOrNull(index)
-            if (app?.banner != null) {
-                Box(Modifier.fillMaxSize()) {
-                    Image(
-                        bitmap = app.banner,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        alpha = if (isGlasses) 0.22f else 0.34f,
-                        modifier = Modifier.fillMaxSize()
+        // Original bundled panoramic artwork: matches the approved reference and
+        // doesn't require an internet connection. XR stays truly black.
+        if (!isGlasses) {
+            Image(
+                painter = painterResource(R.drawable.orbit_cosmos_bg),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+            Box(
+                modifier = Modifier.fillMaxSize().background(
+                    Brush.horizontalGradient(
+                        listOf(
+                            Color(0xD9070619),
+                            Color(0x82070518),
+                            Color(0x1208051D),
+                            Color(0x08080613)
+                        )
                     )
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(
-                                        activeTheme.bgTop.copy(alpha = 0.96f),
-                                        activeTheme.bgMid.copy(alpha = 0.78f),
-                                        activeTheme.bgTop.copy(alpha = 0.35f)
-                                    )
-                                )
-                            )
+                )
+            )
+            Box(
+                modifier = Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(
+                        listOf(Color(0x53040616),Color.Transparent,Color(0x8B060819))
                     )
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(
-                                        activeTheme.bgTop.copy(alpha = 0.60f),
-                                        Color.Transparent,
-                                        activeTheme.bgBottom.copy(alpha = 0.96f)
-                                    )
-                                )
-                            )
-                    )
-                }
-            }
+                )
+            )
         }
 
         val configuration = LocalConfiguration.current
@@ -1391,7 +1370,17 @@ private fun SwitchTvHubScreen(
                         ) { index ->
                             val app = pinnedApps.getOrNull(index)
                             Box(Modifier.fillMaxSize()) {
-                                if (app?.banner != null) {
+                                if (app != null &&
+                                    (app.packageName == AppRepository.ARTEMIS_LEGION_PACKAGE ||
+                                        app.packageName == AppRepository.PLAY_PC_ID)
+                                ) {
+                                    Image(
+                                        painter = painterResource(R.drawable.orbit_artemis_poster),
+                                        contentDescription = "Original Artemis Legion showcase illustration",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else if (app?.banner != null) {
                                     Image(
                                         bitmap = app.banner,
                                         contentDescription = app.label,
@@ -1681,138 +1670,6 @@ private fun SwitchTvHubScreen(
                 }
             }
         }
-    }
-}
-
-/** Full-bleed cosmic panorama. Theme-aware, deterministic and static at rest.
- * Designed for external 16:9 screens without an animated rendering workload. */
-@Composable
-private fun ConsoleAmbientBackdrop(
-    theme: HubTheme,
-    isGlasses: Boolean,
-    modifier: Modifier = Modifier
-) {
-    if (isGlasses) return // Keep XR's black / transparent presentation intact.
-    Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
-        val magenta = Color(0xFFB64AFF)
-        val cyan = Color(0xFF00DEFF)
-
-        drawRect(Brush.verticalGradient(
-            listOf(Color(0xFF040518), Color(0xFF130C37), Color(0xFF39206E), Color(0xFF090B25)),
-            startY = 0f, endY = h
-        ))
-        // Large nebula clouds behind a ringed celestial body.
-        listOf(
-            Triple(Offset(w * .20f,h * .21f), h * .40f, magenta),
-            Triple(Offset(w * .55f,h * .36f), h * .48f, Color(0xFF5936CC)),
-            Triple(Offset(w * .89f,h * .36f), h * .40f, cyan),
-            Triple(Offset(w * .46f,h * .61f), h * .30f, magenta)
-        ).forEach { (center, radius, tint) ->
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(tint.copy(alpha = .32f), tint.copy(alpha = .10f), Color.Transparent),
-                    center = center, radius = radius
-                ),
-                center = center, radius = radius
-            )
-        }
-        // Planet and orbital rings—located behind the showcase, as in the concept.
-        val planetCenter = Offset(w * .67f, h * .31f)
-        val planetR = h * .26f
-        drawCircle(
-            brush = Brush.radialGradient(
-                listOf(Color(0xFF7940E1), Color(0xFF25205D), Color(0xFF090D31)),
-                center = Offset(planetCenter.x-planetR*.45f,planetCenter.y-planetR*.50f),
-                radius = planetR*1.67f
-            ),
-            radius = planetR, center = planetCenter
-        )
-        drawCircle(
-            color = Color(0xFFB37FFF).copy(alpha = .68f),
-            center = planetCenter,
-            radius = planetR,
-            style = Stroke(width = 2.dp.toPx())
-        )
-        rotate(-19f, pivot = planetCenter) {
-            for (ring in 0..2) {
-                drawOval(
-                    color = if (ring == 1) cyan.copy(alpha = .48f) else magenta.copy(alpha = .58f),
-                    topLeft = Offset(planetCenter.x-planetR*1.85f,planetCenter.y-planetR*(.38f+ring*.11f)),
-                    size = Size(planetR*3.7f, planetR*(.76f+ring*.22f)),
-                    style = Stroke(width = (if (ring==1) 2.8.dp else 2.dp).toPx())
-                )
-            }
-        }
-        drawCircle(
-            brush = Brush.radialGradient(
-                listOf(Color(0xFFC788F8), Color(0xFF39245B), Color(0xFF100B31)),
-                center = Offset(w*.89f,h*.14f), radius = h*.09f
-            ),
-            center = Offset(w*.89f,h*.14f), radius = h*.055f
-        )
-        // Stars, deliberately scattered without random state to avoid visual jitter.
-        for (i in 0..169) {
-            val x = w * (((i * 73 + 17) % 193) / 193f)
-            val y = h * (((i * 131 + 29) % 167) / 167f) * .73f
-            val big = i % 13 == 0
-            drawCircle(
-                color = (if (i%4==0) cyan else Color.White).copy(alpha = if (big) .75f else .26f),
-                radius = if (big) 1.4.dp.toPx() else .60.dp.toPx(),
-                center = Offset(x,y)
-            )
-        }
-        // Layered mountain silhouettes.
-        val back = Path().apply {
-            moveTo(0f,h*.71f)
-            lineTo(w*.11f,h*.59f);lineTo(w*.22f,h*.70f)
-            lineTo(w*.34f,h*.53f);lineTo(w*.45f,h*.71f)
-            lineTo(w*.59f,h*.60f);lineTo(w*.68f,h*.72f)
-            lineTo(w*.80f,h*.52f);lineTo(w*.90f,h*.68f)
-            lineTo(w,h*.55f);lineTo(w,h);lineTo(0f,h);close()
-        }
-        drawPath(back, Brush.verticalGradient(listOf(Color(0xFF332363),Color(0xFF0B102A)),h*.50f,h))
-        val front = Path().apply {
-            moveTo(0f,h*.77f);lineTo(w*.12f,h*.66f);lineTo(w*.24f,h*.78f)
-            lineTo(w*.33f,h*.68f);lineTo(w*.47f,h*.77f)
-            lineTo(w*.60f,h*.70f);lineTo(w*.75f,h*.80f)
-            lineTo(w*.87f,h*.65f);lineTo(w,h*.74f)
-            lineTo(w,h);lineTo(0f,h);close()
-        }
-        drawPath(front, Color(0xFF080D28))
-        // Synthwave vanishing-point floor with luminous magenta and cyan lanes.
-        val horizon = h*.76f
-        drawRect(
-            Brush.verticalGradient(listOf(Color(0x4400DFFF),Color(0xCC07071E)),horizon,h),
-            topLeft = Offset(0f,horizon),size = Size(w,h-horizon)
-        )
-        for (i in -10..10) {
-            drawLine(
-                color = if (i%4==0) cyan.copy(alpha=.48f) else magenta.copy(alpha=.46f),
-                start = Offset(w*.54f,horizon),
-                end = Offset(w*.5f + i*w*.115f,h),
-                strokeWidth = if (i%4==0) 1.6.dp.toPx() else 1.dp.toPx()
-            )
-        }
-        for (i in 1..9) {
-            val t = i/9f
-            val y = horizon + (h-horizon)*t*t
-            drawLine(
-                color = (if (i%3==0) cyan else magenta).copy(alpha=.20f+t*.40f),
-                start = Offset(0f,y),end = Offset(w,y),
-                strokeWidth = (1f+t).dp.toPx()
-            )
-        }
-        drawLine(
-            brush = Brush.horizontalGradient(listOf(Color.Transparent,magenta,cyan,Color.Transparent)),
-            start = Offset(0f,horizon),end = Offset(w,horizon),
-            strokeWidth = 2.dp.toPx()
-        )
-        // Darker reading field left, preserving title/description contrast.
-        drawRect(Brush.horizontalGradient(
-            listOf(Color(0xF308071B),Color(0xAB0A0921),Color(0x2508071B),Color.Transparent)
-        ))
     }
 }
 
