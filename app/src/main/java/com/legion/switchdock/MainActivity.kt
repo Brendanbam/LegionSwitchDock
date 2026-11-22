@@ -22,6 +22,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -34,7 +35,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -47,6 +50,7 @@ import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material.icons.rounded.ViewInAr
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import kotlin.math.abs
 import androidx.compose.material3.Button
@@ -69,7 +73,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -571,9 +577,9 @@ private fun DockedBlackoutRemoteScreen(
             }
         } else {
             Surface(
-                color = Color(0xFF141821),
-                shape = RoundedCornerShape(24.dp),
-                border = BorderStroke(1.dp, Color(0xFF2B3345)),
+                color = Color(0xFF121722),
+                shape = RoundedCornerShape(22.dp),
+                border = BorderStroke(1.dp, Color(0xFF222B3B)),
                 modifier = Modifier.padding(24.dp)
             ) {
                 Column(
@@ -581,41 +587,75 @@ private fun DockedBlackoutRemoteScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(18.dp)
                 ) {
+                    Surface(
+                        color = Color(0xFF00E5FF).copy(alpha = 0.14f),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.4f))
+                    ) {
+                        Text(
+                            text = if (isGlasses) "XR GLASSES REMOTE" else "TV REMOTE",
+                            color = Color(0xFF00E5FF),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.2.sp,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+
                     Text(
-                        text = (if (isGlasses) "Glasses Remote • " else "TV Remote • ") + displaySummaryText,
-                        color = Color.White,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
+                        text = displaySummaryText,
+                        color = Color(0xFFF3F5F8),
+                        fontSize = 16.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.SemiBold
                     )
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        OutlinedButton(onClick = {
-                            audioManager.adjustVolume(AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
-                        }) {
-                            Icon(Icons.AutoMirrored.Rounded.VolumeDown, contentDescription = "Vol -", tint = Color.White)
+                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        OutlinedButton(
+                            onClick = { audioManager.adjustVolume(AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI) },
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, Color(0xFF263042))
+                        ) {
+                            Icon(Icons.AutoMirrored.Rounded.VolumeDown, contentDescription = "Vol -", tint = Color(0xFFF3F5F8))
                         }
-                        OutlinedButton(onClick = {
-                            audioManager.adjustVolume(AudioManager.ADJUST_TOGGLE_MUTE, AudioManager.FLAG_SHOW_UI)
-                        }) {
-                            Icon(Icons.AutoMirrored.Rounded.VolumeMute, contentDescription = "Mute", tint = Color.White)
+                        OutlinedButton(
+                            onClick = { audioManager.adjustVolume(AudioManager.ADJUST_TOGGLE_MUTE, AudioManager.FLAG_SHOW_UI) },
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, Color(0xFF263042))
+                        ) {
+                            Icon(Icons.AutoMirrored.Rounded.VolumeMute, contentDescription = "Mute", tint = Color(0xFFF3F5F8))
                         }
-                        OutlinedButton(onClick = {
-                            audioManager.adjustVolume(AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
-                        }) {
-                            Icon(Icons.AutoMirrored.Rounded.VolumeUp, contentDescription = "Vol +", tint = Color.White)
+                        OutlinedButton(
+                            onClick = { audioManager.adjustVolume(AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI) },
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, Color(0xFF263042))
+                        ) {
+                            Icon(Icons.AutoMirrored.Rounded.VolumeUp, contentDescription = "Vol +", tint = Color(0xFFF3F5F8))
                         }
                     }
 
                     if (isGlasses) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            OutlinedButton(onClick = { TvHubActivity.sendRemoteCommand(ControllerCommand.A_CONFIRM) }) {
-                                Text("A  Launch", color = Color.White)
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedButton(
+                                onClick = { TvHubActivity.sendRemoteCommand(ControllerCommand.A_CONFIRM) },
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, Color(0xFF263042))
+                            ) {
+                                Text("A  Launch", color = Color(0xFFF3F5F8))
                             }
-                            OutlinedButton(onClick = { TvHubActivity.sendRemoteCommand(ControllerCommand.B_BACK) }) {
-                                Text("B  Back", color = Color.White)
+                            OutlinedButton(
+                                onClick = { TvHubActivity.sendRemoteCommand(ControllerCommand.B_BACK) },
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, Color(0xFF263042))
+                            ) {
+                                Text("B  Back", color = Color(0xFFF3F5F8))
                             }
-                            OutlinedButton(onClick = { TvHubActivity.sendRemoteCommand(ControllerCommand.START_MENU) }) {
-                                Text("Menu", color = Color.White)
+                            OutlinedButton(
+                                onClick = { TvHubActivity.sendRemoteCommand(ControllerCommand.START_MENU) },
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, Color(0xFF263042))
+                            ) {
+                                Text("Menu", color = Color(0xFFF3F5F8))
                             }
                         }
                     }
@@ -623,18 +663,23 @@ private fun DockedBlackoutRemoteScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Button(
                             onClick = onFocusTvHub,
+                            shape = RoundedCornerShape(10.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
                         ) {
-                            Text(if (isGlasses) "Show Glasses Hub" else "Show TV Hub", color = Color.Black, fontWeight = FontWeight.Bold)
+                            Text(if (isGlasses) "Show Glasses Hub" else "Show TV Hub", color = Color(0xFF06090F), fontWeight = FontWeight.Bold)
                         }
-                        OutlinedButton(onClick = onExitBlackout) {
-                            Text("Tablet Settings", color = Color.White)
+                        OutlinedButton(
+                            onClick = onExitBlackout,
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, Color(0xFF263042))
+                        ) {
+                            Text("Tablet Settings", color = Color(0xFFF3F5F8))
                         }
                     }
 
                     Text(
                         text = "Tap outside to dim screen again",
-                        color = Color(0xFF8C96A8),
+                        color = Color(0xFF647087),
                         fontSize = 12.sp
                     )
                 }
@@ -689,67 +734,114 @@ private fun SetupDashboardScreen(
     onLaunchTvHub: (Int) -> Unit,
     onDimTablet: () -> Unit
 ) {
+    val activeTheme = HubTheme.fromId(selectedThemeId)
+    val accent = activeTheme.accent
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0E1117))
+            .background(Color(0xFF0B0E14))
             .verticalScroll(rememberScrollState())
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // Header
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        Surface(
+            color = Color(0xFF121722),
+            shape = RoundedCornerShape(18.dp),
+            border = BorderStroke(1.dp, Color(0xFF222B3B)),
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Column {
-                Text(
-                    text = "Legion Switch Dock",
-                    color = Color.White,
-                    fontSize = 26.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Plug USB-C into TV for instant console mode",
-                    color = Color(0xFF9BA3B4),
-                    fontSize = 14.sp
-                )
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = {
-                        val targetId = externalDisplay?.displayId ?: Display.DEFAULT_DISPLAY
-                        onLaunchTvHub(targetId)
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 18.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f).padding(end = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Icon(Icons.Rounded.Tv, contentDescription = null, tint = Color.Black)
-                    Spacer(Modifier.size(6.dp))
-                    Text("Open on TV", color = Color.Black, fontWeight = FontWeight.Bold)
-                }
-                OutlinedButton(
-                    onClick = onDimTablet,
-                    border = BorderStroke(1.dp, Color(0xFF374151))
-                ) {
-                    Text("Dim Tablet", color = Color.White)
-                }
-                if (externalDisplay != null) {
-                    OutlinedButton(
-                        onClick = { onLaunchTvHub(Display.DEFAULT_DISPLAY) },
-                        border = BorderStroke(1.dp, Color(0xFF374151))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Color.White)
-                        Spacer(Modifier.size(4.dp))
-                        Text("Preview Hub", color = Color.White)
+                        Text(
+                            text = "Legion Switch Dock",
+                            color = Color(0xFFF3F5F8),
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                        val badgeLabel = when {
+                            externalDisplay?.isGlasses == true -> "XR GLASSES"
+                            externalDisplay != null -> "TV CONNECTED"
+                            else -> "STANDBY"
+                        }
+                        val badgeColor = if (externalDisplay != null) Color(0xFF4ADE80) else Color(0xFF94A0B8)
+                        Surface(
+                            color = badgeColor.copy(alpha = 0.14f),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.45f))
+                        ) {
+                            Text(
+                                text = badgeLabel,
+                                color = badgeColor,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        text = "Plug USB-C into TV or XR glasses for instant console mode",
+                        color = Color(0xFF94A0B8),
+                        fontSize = 13.sp
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(
+                        onClick = {
+                            val targetId = externalDisplay?.displayId ?: Display.DEFAULT_DISPLAY
+                            onLaunchTvHub(targetId)
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = accent)
+                    ) {
+                        Icon(
+                            if (externalDisplay?.isGlasses == true) Icons.Rounded.ViewInAr else Icons.Rounded.Tv,
+                            contentDescription = null,
+                            tint = Color(0xFF06090F)
+                        )
+                        Spacer(Modifier.size(6.dp))
+                        Text("Open on TV", color = Color(0xFF06090F), fontWeight = FontWeight.Bold)
+                    }
+                    OutlinedButton(
+                        onClick = onDimTablet,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, Color(0xFF263042))
+                    ) {
+                        Text("Dim Tablet", color = Color(0xFFF3F5F8))
+                    }
+                    if (externalDisplay != null) {
+                        OutlinedButton(
+                            onClick = { onLaunchTvHub(Display.DEFAULT_DISPLAY) },
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, Color(0xFF263042))
+                        ) {
+                            Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Color(0xFFF3F5F8))
+                            Spacer(Modifier.size(4.dp))
+                            Text("Preview Hub", color = Color(0xFFF3F5F8))
+                        }
                     }
                 }
             }
         }
 
         // Dock Status & HDMI Resolution / FPS Unlocker Card
-        SectionCard(title = "Display Status & HDMI Resolution / FPS Unlocker") {
+        SectionCard(title = "Display Status & HDMI Resolution / FPS Unlocker", accent = accent) {
             val resetCtx = LocalContext.current
             OutlinedButton(
                 onClick = {
@@ -758,9 +850,10 @@ private fun SetupDashboardScreen(
                         if (ok) "Saved resolutions cleared — unplug and replug the TV" else "Needs Shizuku running",
                         android.widget.Toast.LENGTH_LONG).show()
                 },
-                border = BorderStroke(1.dp, Color(0xFF374151))
-            ) { Text("Reset TV / glasses resolution", color = Color.White) }
-            val statusColor = if (externalDisplay != null) Color(0xFF4ADE80) else Color(0xFF9BA3B4)
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, Color(0xFF263042))
+            ) { Text("Reset TV / glasses resolution", color = Color(0xFFF3F5F8)) }
+            val statusColor = if (externalDisplay != null) Color(0xFF4ADE80) else Color(0xFF94A0B8)
             val statusText = if (externalDisplay != null) {
                 val how = if (externalDisplay.profileAutoDetected) "auto-detected" else "set manually"
                 "${externalDisplay.profile.label} Connected ($how): ${externalDisplay.name} (${externalDisplay.summary})"
@@ -773,7 +866,7 @@ private fun SetupDashboardScreen(
                 Spacer(Modifier.height(6.dp))
                 Text(
                     text = "Display Type (picks the TV menu or the Glasses menu):",
-                    color = Color.White,
+                    color = Color(0xFFF3F5F8),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -788,11 +881,12 @@ private fun SetupDashboardScreen(
                         else !externalDisplay.profileAutoDetected && externalDisplay.profile == profile
                         OutlinedButton(
                             onClick = { onSetDisplayType(profile) },
-                            border = BorderStroke(1.dp, if (selected) Color(0xFF00E5FF) else Color(0xFF374151))
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(if (selected) 1.5.dp else 1.dp, if (selected) accent else Color(0xFF263042))
                         ) {
                             Text(
                                 text = if (selected) "✓ $label" else label,
-                                color = if (selected) Color(0xFF00E5FF) else Color.White
+                                color = if (selected) accent else Color(0xFFF3F5F8)
                             )
                         }
                     }
@@ -803,7 +897,7 @@ private fun SetupDashboardScreen(
                 Spacer(Modifier.height(6.dp))
                 Text(
                     text = "Glasses Edge Margin: $glassesEdgeMargin% (keeps the menu out of the blurry edges)",
-                    color = Color.White,
+                    color = Color(0xFFF3F5F8),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -812,23 +906,24 @@ private fun SetupDashboardScreen(
                         val selected = pct == glassesEdgeMargin
                         OutlinedButton(
                             onClick = { onSetGlassesEdgeMargin(pct) },
-                            border = BorderStroke(1.dp, if (selected) Color(0xFF00E5FF) else Color(0xFF374151))
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(if (selected) 1.5.dp else 1.dp, if (selected) accent else Color(0xFF263042))
                         ) {
-                            Text("$pct%", color = if (selected) Color(0xFF00E5FF) else Color.White)
+                            Text("$pct%", color = if (selected) accent else Color(0xFFF3F5F8))
                         }
                     }
                 }
             }
 
             if (externalDisplay?.isGlasses == true) {
-                GlassesScreenSizeRow()
+                GlassesScreenSizeRow(accent = accent)
             }
 
             if (externalDisplay != null && externalDisplay.supportedModes.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
                 Text(
                     text = "${externalDisplay.profile.label} Modes (Tap to Lock Resolution & FPS — saved separately for TV and Glasses):",
-                    color = Color.White,
+                    color = Color(0xFFF3F5F8),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -837,15 +932,16 @@ private fun SetupDashboardScreen(
                         val isActive = preferredModeKey == mode.key
                         OutlinedButton(
                             onClick = { onSelectDisplayMode(mode) },
+                            shape = RoundedCornerShape(10.dp),
                             border = BorderStroke(
-                                1.dp,
-                                if (isActive) Color(0xFF00E5FF) else Color(0xFF374151)
+                                if (isActive) 1.5.dp else 1.dp,
+                                if (isActive) accent else Color(0xFF263042)
                             ),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
                                 text = if (isActive) "✓ ${mode.label} (Active / Locked)" else mode.label,
-                                color = if (isActive) Color(0xFF00E5FF) else Color.White,
+                                color = if (isActive) accent else Color(0xFFF3F5F8),
                                 fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
                             )
                         }
@@ -854,26 +950,28 @@ private fun SetupDashboardScreen(
             }
             Text(
                 text = "4K@60fps Unlock Tip: On your Roku TV go to Settings → TV inputs → HDMI port → HDMI mode → select 'Standard (HDMI 2.0)' instead of 'Auto' (HDMI 1.4 caps 4K at 30fps). Also switch tablet Notification → 'Switch to Mirror Mode' to remove Lenovo's desktop taskbar and unlock full-screen 60Hz+!",
-                color = Color(0xFF9BA3B4),
+                color = Color(0xFF647087),
                 fontSize = 12.sp
             )
         }
 
         // Permissions & Service
-        SectionCard(title = "Dock Detection & Permissions") {
+        SectionCard(title = "Dock Detection & Permissions", accent = accent) {
             ToggleRow(
                 title = "Background Dock Monitor",
                 subtitle = "Watches for USB-C / HDMI TV plug-in events",
                 checked = serviceEnabled,
+                accent = accent,
                 onCheckedChange = onToggleService
             )
             if (!hasOverlayPerm) {
                 Spacer(Modifier.height(8.dp))
                 Button(
                     onClick = onRequestOverlay,
+                    shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B))
                 ) {
-                    Text("Grant 'Display Over Other Apps' (Required for Auto-Launch)", color = Color.Black)
+                    Text("Grant 'Display Over Other Apps' (Required for Auto-Launch)", color = Color(0xFF06090F), fontWeight = FontWeight.Bold)
                 }
             } else {
                 Text(
@@ -886,11 +984,12 @@ private fun SetupDashboardScreen(
                 Spacer(Modifier.height(6.dp))
                 OutlinedButton(
                     onClick = onRequestAccessibility,
-                    border = BorderStroke(1.dp, Color(0xFF00E5FF))
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, accent)
                 ) {
                     Text(
                         "Enable Auto-Return to TV Hub (App Exit / Guide Button)",
-                        color = Color(0xFF00E5FF)
+                        color = accent
                     )
                 }
             } else {
@@ -903,135 +1002,101 @@ private fun SetupDashboardScreen(
         }
 
         // Switch-Mode Behavior
-        SectionCard(title = "Switch-Like Behavior") {
+        SectionCard(title = "Switch-Like Behavior", accent = accent) {
             ToggleRow(
                 title = "Auto-Launch TV Hub on Plug-In",
                 subtitle = "Opens the controller-first TV dashboard on the external display",
                 checked = autoLaunch,
+                accent = accent,
                 onCheckedChange = onToggleAutoLaunch
             )
             ToggleRow(
                 title = "Blackout Tablet Screen When Docked",
                 subtitle = "Dims the Y700 screen to pure black with a tap-to-reveal remote",
                 checked = blackoutTablet,
+                accent = accent,
                 onCheckedChange = onToggleBlackout
             )
             ToggleRow(
                 title = "Switch-Style UI Navigation Sounds",
                 subtitle = "Crisp audio feedback when browsing tiles and menus",
                 checked = uiSounds,
+                accent = accent,
                 onCheckedChange = onToggleUiSounds
             )
             ToggleRow(
                 title = "5-Minute Idle TV Screensaver",
                 subtitle = "Dims the TV Hub to a clean clock after 5 min without controller input",
                 checked = idleDimmer,
+                accent = accent,
                 onCheckedChange = onToggleIdleDimmer
             )
             ToggleRow(
                 title = "Artemis Low-Latency Wi-Fi Boost",
                 subtitle = "Holds WIFI_MODE_FULL_LOW_LATENCY lock & pauses background Wi-Fi/BLE scans while docked to prevent lag spikes",
                 checked = artemisWifiBoost,
+                accent = accent,
                 onCheckedChange = onToggleArtemisWifiBoost
             )
             Spacer(Modifier.height(6.dp))
             Text(
                 text = "TV Hub Theme",
-                color = Color.White,
+                color = Color(0xFFF3F5F8),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold
             )
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 HubTheme.entries.forEach { theme ->
                     val isCurrent = theme.id == selectedThemeId
-                    OutlinedButton(
-                        onClick = { onSelectTheme(theme) },
+                    Surface(
+                        color = if (isCurrent) theme.accent.copy(alpha = 0.14f) else Color(0xFF161C29),
+                        shape = RoundedCornerShape(10.dp),
                         border = BorderStroke(
-                            if (isCurrent) 2.dp else 1.dp,
-                            if (isCurrent) theme.accent else Color(0xFF374151)
+                            if (isCurrent) 1.5.dp else 1.dp,
+                            if (isCurrent) theme.accent else Color(0xFF263042)
                         ),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelectTheme(theme) }
                     ) {
-                        Text(
-                            text = if (isCurrent) "✓ ${theme.displayName} (Active)" else theme.displayName,
-                            color = if (isCurrent) theme.accent else Color.White,
-                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
-                        )
-                    }
-                }
-            }
-        }
-
-        // Y700 Battery & Thermal Protection
-        SectionCard(title = "Y700 Battery & Thermal Protection") {
-            val chargeText = if (health.isCharging) "Charging (${health.wattsEstimate}W)" else "Discharging"
-            Text(
-                text = "Battery: ${health.batteryPercent}% • ${String.format(Locale.US, "%.1f", health.temperatureC)}°C • $chargeText",
-                color = if (health.isThermalWarning) Color(0xFFF59E0B) else Color(0xFFD1D5DB),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium
-            )
-            ToggleRow(
-                title = "Auto-Enable Bypass Charging While Docked",
-                subtitle = "Automatically keeps Bypass Charging ON while docked to TV and restores normal charging on unplug (via Shizuku)",
-                checked = autoBypassCharging,
-                onCheckedChange = onToggleAutoBypassCharging
-            )
-            ToggleRow(
-                title = "TV Thermal Warning (>= 41°C)",
-                subtitle = "Shows a bypass-charging reminder on the TV status bar if battery warms up",
-                checked = thermalWarning,
-                onCheckedChange = onToggleThermalWarning
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = onToggleBypassChargingNow,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (bypassChargingEnabled) Color(0xFF4ADE80) else Color(0xFF00E5FF)
-                    )
-                ) {
-                    Text(
-                        text = if (bypassChargingEnabled) "✓ Bypass Charging: ON" else "Enable Bypass Charging Now",
-                        color = Color.Black,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                OutlinedButton(
-                    onClick = onOpenBypassCharging,
-                    border = BorderStroke(1.dp, Color(0xFF00E5FF))
-                ) {
-                    Text("Open Game Assistant", color = Color(0xFF00E5FF))
-                }
-            }
-            Text(
-                text = "Tip: Hold Guide (or hold both stick clicks, L3 + R3, for half a second) while docked to open the Quick Menu over any game.",
-                color = Color(0xFF9BA3B4),
-                fontSize = 12.sp
-            )
-        }
-
-        // Custom 16:9 Tile Art
-        if (pinnedApps.isNotEmpty()) {
-            SectionCard(title = "Custom 16:9 Tile Art (Pinned Apps)") {
-                pinnedApps.forEach { app ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = app.label,
-                            color = Color.White,
-                            fontSize = 14.sp,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { onPickBanner(app.packageName) }) {
-                                Text(if (app.banner != null) "Change Art" else "Set 16:9 Art", fontSize = 12.sp)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 11.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .clip(CircleShape)
+                                        .background(theme.accent)
+                                )
+                                Text(
+                                    text = theme.displayName,
+                                    color = if (isCurrent) theme.accent else Color(0xFFF3F5F8),
+                                    fontSize = 14.sp,
+                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium
+                                )
                             }
-                            if (app.banner != null) {
-                                OutlinedButton(onClick = { onClearBanner(app.packageName) }) {
-                                    Text("Reset", color = Color(0xFFF87171), fontSize = 12.sp)
+                            if (isCurrent) {
+                                Surface(
+                                    color = theme.accent.copy(alpha = 0.18f),
+                                    shape = RoundedCornerShape(6.dp),
+                                    border = BorderStroke(1.dp, theme.accent.copy(alpha = 0.5f))
+                                ) {
+                                    Text(
+                                        text = "ACTIVE",
+                                        color = theme.accent,
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                    )
                                 }
                             }
                         }
@@ -1040,12 +1105,131 @@ private fun SetupDashboardScreen(
             }
         }
 
-        SectionCard(title = "Steam Controller (Puck)") {
-            SteamControllerSection()
+        // Y700 Battery & Thermal Protection
+        SectionCard(title = "Y700 Battery & Thermal Protection", accent = accent) {
+            val chargeText = if (health.isCharging) "Charging (${health.wattsEstimate}W)" else "Discharging"
+            Text(
+                text = "Battery: ${health.batteryPercent}% • ${String.format(Locale.US, "%.1f", health.temperatureC)}°C • $chargeText",
+                color = if (health.isThermalWarning) Color(0xFFF59E0B) else Color(0xFFD1D5DB),
+                fontSize = 13.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Medium
+            )
+            ToggleRow(
+                title = "Auto-Enable Bypass Charging While Docked",
+                subtitle = "Automatically keeps Bypass Charging ON while docked to TV and restores normal charging on unplug (via Shizuku)",
+                checked = autoBypassCharging,
+                accent = accent,
+                onCheckedChange = onToggleAutoBypassCharging
+            )
+            ToggleRow(
+                title = "TV Thermal Warning (>= 41°C)",
+                subtitle = "Shows a bypass-charging reminder on the TV status bar if battery warms up",
+                checked = thermalWarning,
+                accent = accent,
+                onCheckedChange = onToggleThermalWarning
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = onToggleBypassChargingNow,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (bypassChargingEnabled) Color(0xFF4ADE80) else accent
+                    )
+                ) {
+                    Text(
+                        text = if (bypassChargingEnabled) "✓ Bypass Charging: ON" else "Enable Bypass Charging Now",
+                        color = Color(0xFF06090F),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                OutlinedButton(
+                    onClick = onOpenBypassCharging,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, accent)
+                ) {
+                    Text("Open Game Assistant", color = accent)
+                }
+            }
+            Text(
+                text = "Tip: Hold Guide (or hold both stick clicks, L3 + R3, for half a second) while docked to open the Quick Menu over any game.",
+                color = Color(0xFF647087),
+                fontSize = 12.sp
+            )
+        }
+
+        // Custom 16:9 Tile Art
+        if (pinnedApps.isNotEmpty()) {
+            SectionCard(title = "Custom 16:9 Tile Art (Pinned Apps)", accent = accent) {
+                pinnedApps.forEach { app ->
+                    Surface(
+                        color = Color(0xFF161C29),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Color(0xFF222B3B)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f).padding(end = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Image(
+                                    bitmap = app.icon,
+                                    contentDescription = app.label,
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                )
+                                Text(
+                                    text = app.label,
+                                    color = Color(0xFFF3F5F8),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(
+                                    onClick = { onPickBanner(app.packageName) },
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(1.dp, Color(0xFF263042))
+                                ) {
+                                    Text(
+                                        if (app.banner != null) "Change Art" else "Set 16:9 Art",
+                                        color = Color(0xFFF3F5F8),
+                                        fontSize = 12.sp
+                                    )
+                                }
+                                if (app.banner != null) {
+                                    OutlinedButton(
+                                        onClick = { onClearBanner(app.packageName) },
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.45f))
+                                    ) {
+                                        Text("Reset", color = Color(0xFFF87171), fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        SectionCard(title = "Steam Controller (Puck)", accent = accent) {
+            SteamControllerSection(accent = accent)
         }
 
         // Optional Shizuku Power Tweaks
-        SectionCard(title = "Optional Shizuku Power Tweaks") {
+        SectionCard(title = "Optional Shizuku Power Tweaks", accent = accent) {
             val shizukuText = when (shizukuStatus) {
                 ShizukuStatus.READY -> "✓ Shizuku Connected & Ready"
                 ShizukuStatus.NEEDS_PERMISSION -> "Shizuku running — tap below to grant permission"
@@ -1054,16 +1238,20 @@ private fun SetupDashboardScreen(
             val shizukuColor = when (shizukuStatus) {
                 ShizukuStatus.READY -> Color(0xFF4ADE80)
                 ShizukuStatus.NEEDS_PERMISSION -> Color(0xFFF59E0B)
-                ShizukuStatus.NOT_RUNNING -> Color(0xFF9BA3B4)
+                ShizukuStatus.NOT_RUNNING -> Color(0xFF94A0B8)
             }
             Text(text = shizukuText, color = shizukuColor, fontSize = 13.sp)
 
             if (shizukuStatus == ShizukuStatus.NEEDS_PERMISSION) {
                 Spacer(Modifier.height(6.dp))
-                Button(onClick = onRequestShizuku) {
-                    Icon(Icons.Rounded.Settings, contentDescription = null)
+                Button(
+                    onClick = onRequestShizuku,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = accent)
+                ) {
+                    Icon(Icons.Rounded.Settings, contentDescription = null, tint = Color(0xFF06090F))
                     Spacer(Modifier.size(6.dp))
-                    Text("Grant Shizuku Permission")
+                    Text("Grant Shizuku Permission", color = Color(0xFF06090F), fontWeight = FontWeight.Bold)
                 }
             }
 
@@ -1071,12 +1259,14 @@ private fun SetupDashboardScreen(
                 title = "System Brightness 0% on Dock (Shizuku)",
                 subtitle = "Drops system backlight to 0 when docked and restores on unplug",
                 checked = shizukuScreenOff,
+                accent = accent,
                 onCheckedChange = onToggleShizukuScreenOff
             )
             ToggleRow(
                 title = "Force-Move Running Apps to TV (Shizuku)",
                 subtitle = "Relaunches already-open apps so they move cleanly onto the TV display",
                 checked = shizukuForceRelaunch,
+                accent = accent,
                 onCheckedChange = onToggleShizukuForceRelaunch
             )
         }
@@ -1086,24 +1276,43 @@ private fun SetupDashboardScreen(
 @Composable
 private fun SectionCard(
     title: String,
+    accent: Color = Color(0xFF00E5FF),
     content: @Composable () -> Unit
 ) {
     Surface(
-        color = Color(0xFF171B24),
+        color = Color(0xFF121722),
         shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, Color(0xFF282F3E)),
+        border = BorderStroke(1.dp, Color(0xFF222B3B)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
             modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                text = title,
-                color = Color(0xFF00E5FF),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 0.5.sp
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .height(14.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(accent)
+                )
+                Text(
+                    text = title.uppercase(),
+                    color = accent,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.2.sp
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(Color(0xFF1E2636))
             )
             content()
         }
@@ -1112,7 +1321,7 @@ private fun SectionCard(
 
 /** Steam Controller (2026) through its puck: works as a normal gamepad in every app (needs Shizuku). */
 @Composable
-private fun SteamControllerSection() {
+private fun SteamControllerSection(accent: Color = Color(0xFF00E5FF)) {
     val context = LocalContext.current
     val prefs = remember { DockPreferences(context) }
     val status by com.legion.switchdock.controller.SteamControllerDriver.status.collectAsState()
@@ -1122,12 +1331,14 @@ private fun SteamControllerSection() {
     Text(text = status, color = Color(0xFF4ADE80), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     OutlinedButton(
         onClick = { com.legion.switchdock.controller.SteamControllerDriver.start(context) },
-        border = BorderStroke(1.dp, Color(0xFF374151))
-    ) { Text("Check again", color = Color.White) }
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, Color(0xFF263042))
+    ) { Text("Check again", color = Color(0xFFF3F5F8)) }
     ToggleRow(
         title = "Use as a gamepad in every app",
         subtitle = "Turns off the controller's mouse/keyboard mode and adds a standard controller (needs Shizuku). Quick access (…) opens the dock's quick menu.",
-        checked = enabled
+        checked = enabled,
+        accent = accent
     ) {
         enabled = it; prefs.steamControllerEnabled = it
         com.legion.switchdock.controller.SteamControllerDriver.rescan()
@@ -1135,18 +1346,20 @@ private fun SteamControllerSection() {
     ToggleRow(
         title = "Right touchpad as a mouse",
         subtitle = "Right pad moves the pointer, left pad scrolls. Click the right pad to click, the left pad to right-click.",
-        checked = mouse
+        checked = mouse,
+        accent = accent
     ) { mouse = it; prefs.steamTouchpadMouse = it }
     if (mouse) {
         var speed by remember { mutableStateOf(prefs.steamMouseSpeedPct) }
-        Text(text = "Touchpad mouse speed", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text(text = "Touchpad mouse speed", color = Color(0xFFF3F5F8), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(40 to "Slowest", 60 to "Slow", 100 to "Normal", 150 to "Fast").forEach { (pct, label) ->
                 val selected = pct == speed
                 OutlinedButton(
                     onClick = { prefs.steamMouseSpeedPct = pct; speed = pct },
-                    border = BorderStroke(1.dp, if (selected) Color(0xFF00E5FF) else Color(0xFF374151))
-                ) { Text(label, color = if (selected) Color(0xFF00E5FF) else Color.White) }
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(if (selected) 1.5.dp else 1.dp, if (selected) accent else Color(0xFF263042))
+                ) { Text(label, color = if (selected) accent else Color(0xFFF3F5F8)) }
             }
         }
     }
@@ -1154,14 +1367,14 @@ private fun SteamControllerSection() {
 
 /** Glasses screen size: how much of the glasses view apps fill. Smaller = a smaller screen floating further away. */
 @Composable
-private fun GlassesScreenSizeRow() {
+private fun GlassesScreenSizeRow(accent: Color = Color(0xFF00E5FF)) {
     val context = LocalContext.current
     val prefs = remember { DockPreferences(context) }
     var size by remember { mutableStateOf(prefs.glassesScreenSizePct) }
     Spacer(Modifier.height(6.dp))
     Text(
         text = "Glasses Screen Size: $size% (smaller looks further away; applies to apps you open next)",
-        color = Color.White,
+        color = Color(0xFFF3F5F8),
         fontSize = 13.sp,
         fontWeight = FontWeight.SemiBold
     )
@@ -1170,9 +1383,10 @@ private fun GlassesScreenSizeRow() {
             val selected = pct == size
             OutlinedButton(
                 onClick = { prefs.glassesScreenSizePct = pct; size = pct },
-                border = BorderStroke(1.dp, if (selected) Color(0xFF00E5FF) else Color(0xFF374151))
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(if (selected) 1.5.dp else 1.dp, if (selected) accent else Color(0xFF263042))
             ) {
-                Text("$pct%", color = if (selected) Color(0xFF00E5FF) else Color.White)
+                Text("$pct%", color = if (selected) accent else Color(0xFFF3F5F8))
             }
         }
     }
@@ -1183,6 +1397,7 @@ private fun ToggleRow(
     title: String,
     subtitle: String,
     checked: Boolean,
+    accent: Color = Color(0xFF00E5FF),
     onCheckedChange: (Boolean) -> Unit
 ) {
     Row(
@@ -1191,15 +1406,18 @@ private fun ToggleRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(text = title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-            Text(text = subtitle, color = Color(0xFF9BA3B4), fontSize = 12.sp)
+            Text(text = title, color = Color(0xFFF3F5F8), fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(text = subtitle, color = Color(0xFF94A0B8), fontSize = 12.sp)
         }
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.Black,
-                checkedTrackColor = Color(0xFF00E5FF)
+                checkedThumbColor = Color(0xFF06090F),
+                checkedTrackColor = accent,
+                uncheckedThumbColor = Color(0xFF94A0B8),
+                uncheckedTrackColor = Color(0xFF1B2230),
+                uncheckedBorderColor = Color(0xFF263042)
             )
         )
     }
