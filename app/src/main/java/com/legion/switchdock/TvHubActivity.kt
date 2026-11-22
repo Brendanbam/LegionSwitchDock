@@ -32,6 +32,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -1385,7 +1386,10 @@ private fun SwitchTvHubScreen(
                     Box(
                         modifier = Modifier
                             .weight(if (compactHome) 1.20f else 1.08f)
-                            .fillMaxHeight(if (compactHome) 0.97f else 0.93f)
+                            // 16:9 showcase on both tablet and TV. The previous
+                            // fillMaxHeight stretched it into a giant portrait slab
+                            // on 4K displays and cropped the cinematic artwork.
+                            .aspectRatio(16f / 9f)
                             .shadow(
                                 elevation = 18.dp,
                                 shape = RoundedCornerShape(24.dp),
