@@ -1630,7 +1630,7 @@ private fun SwitchTvHubScreen(
     }
 }
 
-/** Precision architectural grid and soft radial horizon glow driven by the active HubTheme. */
+/** Theme-aware cinematic horizon, kept completely black for see-through XR mode. */
 @Composable
 private fun ConsoleAmbientBackdrop(
     theme: HubTheme,
@@ -1641,29 +1641,53 @@ private fun ConsoleAmbientBackdrop(
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
-
+        val glowCenter = Offset(w * 0.76f, h * 0.43f)
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(theme.accent.copy(alpha = 0.14f), Color.Transparent),
-                center = Offset(w * 0.78f, h * 0.28f),
-                radius = h * 0.65f
+                colors = listOf(theme.accent.copy(alpha = 0.22f), theme.accent.copy(alpha = 0.07f), Color.Transparent),
+                center = glowCenter,
+                radius = w * 0.43f
             ),
-            radius = h * 0.65f,
-            center = Offset(w * 0.78f, h * 0.28f)
+            center = glowCenter,
+            radius = w * 0.43f
         )
-
-        val gridColor = Color.White.copy(alpha = 0.03f)
-        val step = 72.dp.toPx()
-        var x = step
-        while (x < w) {
-            drawLine(gridColor, start = Offset(x, 0f), end = Offset(x, h), strokeWidth = 1f)
-            x += step
+        // A wide vanishing-point horizon creates cinematic depth on a TV.
+        val horizon = h * 0.80f
+        for (i in 0..14) {
+            val fraction = i / 14f
+            val endX = w * fraction
+            drawLine(
+                color = theme.accent.copy(alpha = 0.035f + fraction * 0.02f),
+                start = Offset(w * 0.58f, horizon),
+                end = Offset(endX, h),
+                strokeWidth = 1.dp.toPx()
+            )
         }
-        var y = step
-        while (y < h) {
-            drawLine(gridColor, start = Offset(0f, y), end = Offset(w, y), strokeWidth = 1f)
-            y += step
+        for (i in 1..7) {
+            val t = i / 7f
+            val y = horizon + (h - horizon) * t * t
+            drawLine(
+                color = theme.accent.copy(alpha = 0.04f + t * 0.045f),
+                start = Offset(0f, y),
+                end = Offset(w, y),
+                strokeWidth = 1.dp.toPx()
+            )
         }
+        for (i in 0..55) {
+            val x = w * (((i * 71 + 13) % 101) / 101f)
+            val y = h * (((i * 41 + 19) % 97) / 97f) * 0.78f
+            drawCircle(
+                color = Color.White.copy(alpha = if (i % 7 == 0) 0.42f else 0.10f),
+                radius = if (i % 7 == 0) 1.3.dp.toPx() else 0.65.dp.toPx(),
+                center = Offset(x, y)
+            )
+        }
+        drawLine(
+            color = theme.accent.copy(alpha = 0.20f),
+            start = Offset(0f, horizon),
+            end = Offset(w, horizon),
+            strokeWidth = 1.dp.toPx()
+        )
     }
 }
 
