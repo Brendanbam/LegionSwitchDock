@@ -978,7 +978,16 @@ private fun SwitchTvHubScreen(
             maxOf(prefs.glassesEdgeMarginPct / 100f, (100 - screenSizeTick.let { prefs.glassesScreenSizePct }) / 200f)
         } else 0f
         val outerPadH = (if (isGlasses) 44.dp else 32.dp) + (configuration.screenWidthDp * glassesMarginFraction).dp
-        val outerPadV = (if (isGlasses) 28.dp else 20.dp) + (configuration.screenHeightDp * glassesMarginFraction).dp
+        val outerPadV = (if (isGlasses) 28.dp else 16.dp) + (configuration.screenHeightDp * glassesMarginFraction).dp
+        // Fit the featured artwork and up to six launch tiles on the actual display,
+        // rather than assuming TV density / usable width is identical to a tablet.
+        val compactHome = !isGlasses && configuration.screenHeightDp < 610
+        val visibleDockTiles = (pinnedApps.size + 2).coerceIn(2, 6)
+        val availableDockDp = configuration.screenWidthDp.toFloat() - outerPadH.value * 2f
+        val dockCardWidth = if (isGlasses) 158.dp else
+            ((availableDockDp - 44f - (visibleDockTiles - 1) * 12f) / visibleDockTiles)
+                .coerceIn(90f, 174f).dp
+        val dockCardHeight = if (compactHome) 92.dp else 114.dp
 
         Column(
             modifier = Modifier
@@ -1235,7 +1244,7 @@ private fun SwitchTvHubScreen(
             // ORBIT HOME: visual-first command deck with controller-owned selection.
             // No extra focus layer: existing controller indices still drive the whole screen.
             Column(
-                modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 12.dp, bottom = 7.dp),
+                modifier = Modifier.fillMaxWidth().weight(1f).padding(top = if (compactHome) 5.dp else 12.dp, bottom = 6.dp),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
                 val heroApp = pinnedApps.getOrNull(safeTileIndex)
@@ -1259,7 +1268,7 @@ private fun SwitchTvHubScreen(
                     else -> "Audio, controller pairing, power and display options."
                 }
                 Row(
-                    modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 6.dp),
+                    modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 6.dp, vertical = if (compactHome) 4.dp else 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(18.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -1359,8 +1368,8 @@ private fun SwitchTvHubScreen(
                     // Giant neon-framed showcase, matching the concept rather than a floating app icon.
                     Box(
                         modifier = Modifier
-                            .weight(1.08f)
-                            .fillMaxHeight(0.93f)
+                            .weight(if (compactHome) 1.20f else 1.08f)
+                            .fillMaxHeight(if (compactHome) 0.97f else 0.93f)
                             .shadow(
                                 elevation = 18.dp,
                                 shape = RoundedCornerShape(24.dp),
@@ -1472,7 +1481,7 @@ private fun SwitchTvHubScreen(
                 // Floating carousel – the only interactive selection rail on the TV home.
                 Column(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(if (compactHome) 5.dp else 8.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
@@ -1504,8 +1513,8 @@ private fun SwitchTvHubScreen(
                         LazyRow(
                             state = rowListState,
                             modifier = Modifier.fillMaxWidth(),
-                            contentPadding = PaddingValues(horizontal = 22.dp, vertical = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(13.dp)
+                            contentPadding = PaddingValues(horizontal = 22.dp, vertical = if (compactHome) 10.dp else 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             itemsIndexed(pinnedApps, key = { _, app -> app.packageName }) { index, app ->
                                 SwitchAppTile(
@@ -1515,7 +1524,9 @@ private fun SwitchTvHubScreen(
                                     onClick = {
                                         selectedTileIndex = index
                                         onLaunchApp(app)
-                                    }
+                                    },
+                                    tileWidth = dockCardWidth,
+                                    tileHeight = dockCardHeight
                                 )
                             }
                             item(key = "add_more_apps_tile") {
@@ -1529,7 +1540,9 @@ private fun SwitchTvHubScreen(
                                         selectedTileIndex = idx
                                         selectedDrawerIndex = 0
                                         showAllAppsDrawer = true
-                                    }
+                                    },
+                                    tileWidth = dockCardWidth,
+                                    tileHeight = dockCardHeight
                                 )
                             }
                             item(key = "quick_menu_tile") {
@@ -1543,7 +1556,9 @@ private fun SwitchTvHubScreen(
                                         selectedTileIndex = idx
                                         selectedMenuIndex = 0
                                         showQuickMenu = true
-                                    }
+                                    },
+                                    tileWidth = dockCardWidth,
+                                    tileHeight = dockCardHeight
                                 )
                             }
                         }
@@ -1557,7 +1572,7 @@ private fun SwitchTvHubScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(if (compactHome) 8.dp else 14.dp)) {
                     ButtonPrompt("A", "Launch", activeTheme)
                     ButtonPrompt("B", "Back", activeTheme)
                     ButtonPrompt("Y", "Library", activeTheme)
@@ -1856,7 +1871,9 @@ private fun SwitchAppTile(
     app: AppEntry,
     isSelected: Boolean,
     theme: HubTheme,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    tileWidth: androidx.compose.ui.unit.Dp = 158.dp,
+    tileHeight: androidx.compose.ui.unit.Dp = 114.dp
 ) {
     val scale by animateFloatAsState(
         targetValue = if (isSelected) 1.055f else .97f,
@@ -1866,7 +1883,7 @@ private fun SwitchAppTile(
     val shape = RoundedCornerShape(18.dp)
     Box(
         modifier = Modifier
-            .size(width = 158.dp, height = 114.dp)
+            .size(width = tileWidth, height = tileHeight)
             .scale(scale)
             .shadow(
                 elevation = if (isSelected) 17.dp else 3.dp,
@@ -1904,8 +1921,8 @@ private fun SwitchAppTile(
                 contentDescription = null,
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .padding(bottom = 18.dp)
-                    .size(57.dp)
+                    .padding(bottom = 14.dp)
+                    .size(if (tileWidth < 112.dp) 42.dp else 57.dp)
                     .clip(RoundedCornerShape(12.dp))
             )
         }
@@ -1923,7 +1940,7 @@ private fun SwitchAppTile(
         Text(
             text = app.label,
             color = Color.White,
-            fontSize = 13.sp,
+            fontSize = if (tileWidth < 112.dp) 11.sp else 13.sp,
             fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -1949,7 +1966,9 @@ private fun ActionTile(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     theme: HubTheme,
     isSelected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    tileWidth: androidx.compose.ui.unit.Dp = 158.dp,
+    tileHeight: androidx.compose.ui.unit.Dp = 114.dp
 ) {
     val shape = RoundedCornerShape(18.dp)
     val scale by animateFloatAsState(
@@ -1959,7 +1978,7 @@ private fun ActionTile(
     )
     Box(
         modifier = Modifier
-            .size(width = 158.dp, height = 114.dp)
+            .size(width = tileWidth, height = tileHeight)
             .scale(scale)
             .shadow(
                 elevation = if (isSelected) 17.dp else 3.dp,
@@ -1984,7 +2003,7 @@ private fun ActionTile(
             imageVector = icon,
             contentDescription = null,
             tint = Color(0xFFECE3FF),
-            modifier = Modifier.align(Alignment.Center).padding(bottom = 16.dp).size(47.dp)
+            modifier = Modifier.align(Alignment.Center).padding(bottom = 12.dp).size(if (tileWidth < 112.dp) 33.dp else 47.dp)
         )
         Box(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(48.dp)
@@ -1993,7 +2012,7 @@ private fun ActionTile(
         Text(
             text = title,
             color = Color.White,
-            fontSize = 13.sp,
+            fontSize = if (tileWidth < 112.dp) 11.sp else 13.sp,
             fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
             textAlign = TextAlign.Center,
             maxLines = 1,
