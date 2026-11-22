@@ -21,6 +21,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -89,11 +90,13 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -1279,7 +1282,7 @@ private fun SwitchTvHubScreen(
                     // Title and action sit directly on the ambient canvas, not inside a card.
                     Column(
                         modifier = Modifier.weight(1.25f),
-                        verticalArrangement = Arrangement.spacedBy(11.dp)
+                        verticalArrangement = Arrangement.spacedBy(if (configuration.screenHeightDp < 550) 7.dp else 11.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                             Box(Modifier.size(7.dp).clip(CircleShape).background(activeTheme.accent))
@@ -1295,8 +1298,8 @@ private fun SwitchTvHubScreen(
                             Text(
                                 text = title,
                                 color = activeTheme.textPrimary,
-                                fontSize = 54.sp,
-                                lineHeight = 57.sp,
+                                fontSize = if (configuration.screenWidthDp < 850) 37.sp else 54.sp,
+                                lineHeight = if (configuration.screenWidthDp < 850) 42.sp else 57.sp,
                                 letterSpacing = (-1.8).sp,
                                 fontWeight = FontWeight.Black,
                                 maxLines = 2,
@@ -1746,8 +1749,8 @@ private fun SwitchAppTile(
     onClick: () -> Unit
 ) {
     val scale by animateFloatAsState(
-        targetValue = if (isSelected) 1.08f else 1.0f,
-        animationSpec = tween(150),
+        targetValue = if (isSelected) 1.095f else 0.96f,
+        animationSpec = tween(210),
         label = "tileScale"
     )
 
@@ -1761,6 +1764,7 @@ private fun SwitchAppTile(
             modifier = Modifier
                 .width(148.dp)
                 .height(82.dp)
+                .shadow(if (isSelected) 17.dp else 0.dp, RoundedCornerShape(18.dp), ambientColor = theme.accent, spotColor = theme.accent)
                 .clip(RoundedCornerShape(18.dp))
                 .background(
                     Brush.verticalGradient(
@@ -1772,8 +1776,8 @@ private fun SwitchAppTile(
                     )
                 )
                 .border(
-                    width = if (isSelected) 2.5.dp else 1.dp,
-                    color = if (isSelected) theme.borderFocused else theme.borderSubtle,
+                    width = if (isSelected) 3.dp else 1.dp,
+                    color = if (isSelected) theme.accent else theme.borderSubtle,
                     shape = RoundedCornerShape(18.dp)
                 ),
             contentAlignment = Alignment.Center
@@ -1815,12 +1819,12 @@ private fun SwitchAppTile(
                 )
             }
         }
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = app.label,
             color = if (isSelected) theme.textPrimary else theme.textSecondary,
-            fontSize = 12.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+            fontSize = if (isSelected) 13.sp else 12.sp,
+            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
             textAlign = TextAlign.Center,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -1838,8 +1842,8 @@ private fun ActionTile(
     onClick: () -> Unit
 ) {
     val scale by animateFloatAsState(
-        targetValue = if (isSelected) 1.08f else 1.0f,
-        animationSpec = tween(150),
+        targetValue = if (isSelected) 1.095f else 0.96f,
+        animationSpec = tween(210),
         label = "actionScale"
     )
 
@@ -1853,13 +1857,14 @@ private fun ActionTile(
             modifier = Modifier
                 .width(148.dp)
                 .height(82.dp)
+                .shadow(if (isSelected) 17.dp else 0.dp, RoundedCornerShape(18.dp), ambientColor = theme.accent, spotColor = theme.accent)
                 .clip(RoundedCornerShape(18.dp))
                 .background(
                     if (isSelected) theme.focusGlow.copy(alpha = 0.25f) else theme.surfaceElevated
                 )
                 .border(
-                    width = if (isSelected) 2.5.dp else 1.dp,
-                    color = if (isSelected) theme.borderFocused else theme.borderSubtle,
+                    width = if (isSelected) 3.dp else 1.dp,
+                    color = if (isSelected) theme.accent else theme.borderSubtle,
                     shape = RoundedCornerShape(18.dp)
                 ),
             contentAlignment = Alignment.Center
@@ -1882,12 +1887,12 @@ private fun ActionTile(
                 )
             }
         }
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = title,
             color = if (isSelected) theme.textPrimary else theme.textSecondary,
-            fontSize = 12.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+            fontSize = if (isSelected) 13.sp else 12.sp,
+            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
         )
     }
 }
