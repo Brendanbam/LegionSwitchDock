@@ -1119,44 +1119,162 @@ private fun SwitchTvHubScreen(
                 }
             }
 
-            // Center Focused Title + Horizontal 16:9 Switch Card Row
+            // Console dashboard: cinematic featured selection above the installed-app shelf.
+            // The same selection index and controller command handler drive both areas.
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(20.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = if (isGlasses) focusedTitle else "READY TO PLAY  •  $focusedTitle",
-                    color = Color.White,
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(start = 6.dp)
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(
+                            text = if (isGlasses) "LEGION XR" else "YOUR GAME SPACE",
+                            color = Color(0xFFCE9EFF),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 2.sp
+                        )
+                        Text(
+                            text = "Welcome back",
+                            color = Color.White,
+                            fontSize = 29.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Text(
+                        text = "D-PAD / STICK  •  BROWSE",
+                        color = Color(0xFFCEC1E5),
+                        fontSize = 12.sp
+                    )
+                }
+
+                // Selected app gets a true featured hero, not just a colored border.
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color(0xFF1A1435),
+                    border = BorderStroke(1.dp, Color(0xFF8055BD)),
+                    modifier = Modifier.fillMaxWidth().height(178.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(Color(0xFF30165E), Color(0xFF231D55), Color(0xFF0D142B))
+                                )
+                            )
+                    ) {
+                        // Abstract horizon adds depth without third-party artwork.
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .size(220.dp)
+                                .background(
+                                    Brush.radialGradient(
+                                        listOf(Color(0xFF9952E8).copy(alpha = 0.42f), Color.Transparent)
+                                    )
+                                )
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxSize().padding(horizontal = 26.dp, vertical = 18.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(22.dp)
+                        ) {
+                            val featuredApp = pinnedApps.getOrNull(safeTileIndex)
+                            if (featuredApp != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(116.dp)
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .background(Color(0xFF120D26)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Image(
+                                        bitmap = featuredApp.banner ?: featuredApp.icon,
+                                        contentDescription = featuredApp.label,
+                                        contentScale = if (featuredApp.banner != null) ContentScale.Crop else ContentScale.Fit,
+                                        modifier = if (featuredApp.banner != null) Modifier.fillMaxSize() else Modifier.size(86.dp)
+                                    )
+                                }
+                            } else {
+                                Icon(
+                                    if (safeTileIndex == pinnedApps.size) Icons.Rounded.Apps else Icons.Rounded.Settings,
+                                    contentDescription = null,
+                                    tint = Color(0xFFD6A9FF),
+                                    modifier = Modifier.size(88.dp)
+                                )
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                                Text(
+                                    text = if (featuredApp != null) "READY TO LAUNCH" else "SYSTEM",
+                                    color = Color(0xFFD6A9FF),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.5.sp
+                                )
+                                Text(
+                                    text = focusedTitle,
+                                    color = Color.White,
+                                    fontSize = 32.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = if (featuredApp != null) "Press A to play" else "Press A to open",
+                                    color = Color(0xFFD4CAE7),
+                                    fontSize = 15.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "YOUR APPS",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.4.sp
+                    )
+                    Text(
+                        text = "${pinnedApps.size} PINNED  •  Y ALL APPS",
+                        color = Color(0xFFB7A8D4),
+                        fontSize = 12.sp
+                    )
+                }
 
                 LazyRow(
                     state = rowListState,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(26.dp)
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 7.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     itemsIndexed(pinnedApps, key = { _, app -> app.packageName }) { index, app ->
                         SwitchAppTile(
                             app = app,
-                            isSelected = (safeTileIndex == index),
+                            isSelected = safeTileIndex == index,
                             onClick = {
                                 selectedTileIndex = index
                                 onLaunchApp(app)
                             }
                         )
                     }
-
                     item(key = "add_more_apps_tile") {
                         val idx = pinnedApps.size
                         ActionTile(
                             title = "All Apps & Pin",
                             icon = Icons.Rounded.Add,
                             accent = Color(0xFFB77AFF),
-                            isSelected = (safeTileIndex == idx),
+                            isSelected = safeTileIndex == idx,
                             onClick = {
                                 selectedTileIndex = idx
                                 SwitchAudioFeedback.playMenu(context)
@@ -1165,14 +1283,13 @@ private fun SwitchTvHubScreen(
                             }
                         )
                     }
-
                     item(key = "quick_menu_tile") {
                         val idx = pinnedApps.size + 1
                         ActionTile(
                             title = "Quick Menu",
                             icon = Icons.Rounded.Settings,
                             accent = Color(0xFFB77AFF),
-                            isSelected = (safeTileIndex == idx),
+                            isSelected = safeTileIndex == idx,
                             onClick = {
                                 selectedTileIndex = idx
                                 SwitchAudioFeedback.playMenu(context)
@@ -1334,8 +1451,8 @@ private fun SwitchAppTile(
     ) {
         Box(
             modifier = Modifier
-                .width(236.dp)
-                .height(148.dp)
+                .width(170.dp)
+                .height(98.dp)
                 .clip(RoundedCornerShape(22.dp))
                 .background(
                     Brush.radialGradient(
@@ -1361,20 +1478,20 @@ private fun SwitchAppTile(
                     bitmap = app.icon,
                     contentDescription = app.label,
                     modifier = Modifier
-                        .size(92.dp)
+                        .size(64.dp)
                         .clip(RoundedCornerShape(20.dp))
                 )
             }
         }
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(5.dp))
         Text(
             text = app.label,
             color = if (isSelected) Color(0xFFE2C8FF) else Color(0xFFC2B6DB),
-            fontSize = 15.sp,
+            fontSize = 13.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.width(226.dp)
+            modifier = Modifier.width(164.dp)
         )
     }
 }
@@ -1401,8 +1518,8 @@ private fun ActionTile(
     ) {
         Box(
             modifier = Modifier
-                .width(180.dp)
-                .height(148.dp)
+                .width(155.dp)
+                .height(98.dp)
                 .clip(RoundedCornerShape(22.dp))
                 .background(Color(0xFF191D27))
                 .border(
@@ -1416,14 +1533,14 @@ private fun ActionTile(
                 imageVector = icon,
                 contentDescription = title,
                 tint = if (isSelected) accent else Color(0xFF9BA3B4),
-                modifier = Modifier.size(58.dp)
+                modifier = Modifier.size(44.dp)
             )
         }
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(5.dp))
         Text(
             text = title,
             color = if (isSelected) accent else Color(0xFFB8C0D0),
-            fontSize = 15.sp,
+            fontSize = 13.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
         )
     }
