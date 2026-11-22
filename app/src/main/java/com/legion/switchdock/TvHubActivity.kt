@@ -74,6 +74,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -98,6 +99,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
@@ -105,6 +107,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -933,6 +936,18 @@ private fun SwitchTvHubScreen(
         }
     }
 
+    // Android external displays may expose 1920–3840 logical dp. Without a
+    // TV-specific density, 12–54sp labels and 158dp cards become tiny at 4K.
+    // Normalize the hub to an approximately 1280x720 design canvas in TV
+    // mode. XR retains its native density and transparent black behavior.
+    val displayConfiguration = LocalConfiguration.current
+    val platformDensity = LocalDensity.current
+    val tvScale = if (isGlasses) 1f else minOf(
+        displayConfiguration.screenWidthDp / 1280f,
+        displayConfiguration.screenHeightDp / 720f
+    ).coerceIn(1f, 3f)
+    val hubDensity = Density(platformDensity.density * tvScale, platformDensity.fontScale)
+    CompositionLocalProvider(LocalDensity provides hubDensity) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -981,9 +996,9 @@ private fun SwitchTvHubScreen(
         val outerPadV = (if (isGlasses) 28.dp else 16.dp) + (configuration.screenHeightDp * glassesMarginFraction).dp
         // Fit the featured artwork and up to six launch tiles on the actual display,
         // rather than assuming TV density / usable width is identical to a tablet.
-        val compactHome = !isGlasses && configuration.screenHeightDp < 610
+        val compactHome = !isGlasses && configuration.screenHeightDp / tvScale < 610f
         val visibleDockTiles = (pinnedApps.size + 2).coerceIn(2, 6)
-        val availableDockDp = configuration.screenWidthDp.toFloat() - outerPadH.value * 2f
+        val availableDockDp = configuration.screenWidthDp.toFloat() / tvScale - outerPadH.value * 2f
         val dockCardWidth = if (isGlasses) 158.dp else
             ((availableDockDp - 44f - (visibleDockTiles - 1) * 12f) / visibleDockTiles)
                 .coerceIn(90f, 174f).dp
@@ -1736,6 +1751,7 @@ private fun SwitchTvHubScreen(
                 }
             }
         }
+    }
     }
 }
 
