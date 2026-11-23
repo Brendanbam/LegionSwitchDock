@@ -40,11 +40,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.legion.switchdock.ControllerCommand
+import com.legion.switchdock.data.HubTheme
 import com.legion.switchdock.display.ExternalDisplayHelper
 import com.legion.switchdock.shizuku.ShizukuHelper
 import com.legion.switchdock.shizuku.ShizukuStatus
@@ -337,81 +339,230 @@ class BluetoothHub(private val activity: Activity) {
 /* ---------------- UI ---------------- */
 
 @Composable
-fun BluetoothPanel(hub: BluetoothHub) {
+fun BluetoothPanel(hub: BluetoothHub, activeTheme: HubTheme = HubTheme.SWITCH_DARK) {
     val listState = rememberLazyListState()
     LaunchedEffect(hub.selected) { if (hub.rowCount > 0) listState.animateScrollToItem((hub.selected - 2).coerceAtLeast(0)) }
 
     Box(
-        modifier = Modifier.fillMaxSize().background(Color(0xB8080A0E)),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xCC06080D)),
         contentAlignment = Alignment.Center
     ) {
         Surface(
-            color = Color(0xFF141821),
-            shape = RoundedCornerShape(22.dp),
-            border = BorderStroke(2.dp, Color(0xFF00E5FF)),
-            modifier = Modifier.width(560.dp)
+            color = activeTheme.surfaceModal,
+            shape = RoundedCornerShape(20.dp),
+            border = BorderStroke(1.dp, activeTheme.accent.copy(alpha = 0.45f)),
+            modifier = Modifier.width(580.dp)
         ) {
-            Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("BLUETOOTH", color = Color(0xFF00E5FF), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Column(
+                modifier = Modifier.padding(22.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = "BLUETOOTH",
+                            color = activeTheme.accent,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 1.4.sp
+                        )
+                        Text(
+                            text = "Controllers & Audio Devices",
+                            color = activeTheme.textMuted,
+                            fontSize = 12.sp
+                        )
+                    }
+
+                    val statusBadgeText = when {
+                        !hub.hasPermission -> "PERMISSION"
+                        hub.scanning -> "SCANNING…"
+                        hub.enabled -> "ON"
+                        else -> "OFF"
+                    }
+                    val statusColor = when {
+                        !hub.hasPermission -> Color(0xFFF59E0B)
+                        hub.scanning -> activeTheme.accent
+                        hub.enabled -> Color(0xFF4ADE80)
+                        else -> activeTheme.textSecondary
+                    }
+                    Surface(
+                        color = statusColor.copy(alpha = 0.14f),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, statusColor.copy(alpha = 0.45f))
+                    ) {
+                        Text(
+                            text = statusBadgeText,
+                            color = statusColor,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+                }
 
                 if (!hub.hasPermission) {
-                    BtRow("Allow Bluetooth access", "Needed to list and pair devices", hub.selected == 0)
+                    BtRow(
+                        title = "Allow Bluetooth access",
+                        subtitle = "Needed to list and pair devices",
+                        badge = "GRANT",
+                        selected = hub.selected == 0,
+                        theme = activeTheme
+                    )
                 } else {
                     BtRow(
-                        if (hub.enabled) "Bluetooth: On" else "Bluetooth: Off",
-                        if (hub.enabled) "A to turn off" else "A to turn on",
-                        hub.selected == 0
+                        title = "Bluetooth Radio",
+                        subtitle = if (hub.enabled) "Press A to turn off" else "Press A to turn on",
+                        badge = if (hub.enabled) "ON" else "OFF",
+                        selected = hub.selected == 0,
+                        isPositive = hub.enabled,
+                        theme = activeTheme
                     )
                     BtRow(
-                        if (hub.scanning) "Searching for devices…" else "Search for devices",
-                        "Put the device in pairing mode, then press A (or Y anytime)",
-                        hub.selected == 1
+                        title = if (hub.scanning) "Searching for nearby devices…" else "Scan for Devices",
+                        subtitle = "Put controller or headphones in pairing mode, then press A or Y",
+                        badge = if (hub.scanning) "ACTIVE" else "SCAN",
+                        selected = hub.selected == 1,
+                        isPositive = hub.scanning,
+                        theme = activeTheme
                     )
-                    LazyColumn(state = listState, modifier = Modifier.heightIn(max = 300.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (hub.paired.isNotEmpty()) item { SectionLabel("PAIRED") }
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.heightIn(max = 310.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (hub.paired.isNotEmpty()) item { SectionLabel("PAIRED DEVICES", activeTheme) }
                         itemsIndexed(hub.paired) { i, d ->
                             val sel = hub.selected == i + 2
+                            val actionHint = if (sel) {
+                                if (d.connected) " • A disconnect • X forget" else " • A connect • X forget"
+                            } else ""
                             BtRow(
-                                d.name,
-                                "${d.kind.label} • ${if (d.connected) "Connected" else "Not connected"}" +
-                                    if (sel) (if (d.connected) "  ·  A disconnect  ·  X forget" else "  ·  A connect  ·  X forget") else "",
-                                sel,
-                                accent = d.connected
+                                title = d.name,
+                                subtitle = "${d.kind.label}$actionHint",
+                                badge = if (d.connected) "CONNECTED" else "PAIRED",
+                                selected = sel,
+                                isPositive = d.connected,
+                                theme = activeTheme
                             )
                         }
-                        if (hub.found.isNotEmpty()) item { SectionLabel("AVAILABLE") }
+                        if (hub.found.isNotEmpty()) item { SectionLabel("AVAILABLE TO PAIR", activeTheme) }
                         itemsIndexed(hub.found) { i, d ->
                             val sel = hub.selected == i + 2 + hub.paired.size
-                            BtRow(d.name, "${d.kind.label} • ${if (d.pairing) "Pairing…" else "A to pair"}", sel)
+                            BtRow(
+                                title = d.name,
+                                subtitle = "${d.kind.label} • Press A to pair",
+                                badge = if (d.pairing) "PAIRING…" else "PAIR",
+                                selected = sel,
+                                isPositive = d.pairing,
+                                theme = activeTheme
+                            )
                         }
                     }
                 }
 
-                hub.message?.let { Text(it, color = Color(0xFFF59E0B), fontSize = 13.sp) }
-                Text("A select  •  X forget  •  Y search  •  B back", color = Color(0xFF6B7280), fontSize = 12.sp)
+                hub.message?.let {
+                    Surface(
+                        color = Color(0xFFF59E0B).copy(alpha = 0.14f),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.45f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = it,
+                            color = Color(0xFFFBBF24),
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+                        )
+                    }
+                }
+                Text(
+                    text = "A Select  •  X Forget  •  Y Search  •  B Back",
+                    color = activeTheme.textMuted,
+                    fontSize = 11.sp
+                )
             }
         }
     }
 }
 
 @Composable
-private fun SectionLabel(text: String) {
-    Text(text, color = Color(0xFF9BA3B4), fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
+private fun SectionLabel(text: String, theme: HubTheme) {
+    Text(
+        text = text,
+        color = theme.textMuted,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 1.2.sp,
+        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+    )
 }
 
 @Composable
-private fun BtRow(title: String, subtitle: String, selected: Boolean, accent: Boolean = false) {
+private fun BtRow(
+    title: String,
+    subtitle: String,
+    badge: String,
+    selected: Boolean,
+    isPositive: Boolean = false,
+    theme: HubTheme = HubTheme.SWITCH_DARK
+) {
     Surface(
-        color = if (selected) Color(0xFF004456) else Color(0xFF1F2430),
+        color = if (selected) theme.focusGlow.copy(alpha = 0.30f) else theme.surfaceElevated,
         shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) Color(0xFF00E5FF) else Color(0xFF2E3545)),
+        border = BorderStroke(
+            width = if (selected) 2.dp else 1.dp,
+            color = if (selected) theme.accent else theme.borderSubtle
+        ),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, color = if (accent) Color(0xFF4ADE80) else Color.White, fontSize = 15.sp,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(subtitle, color = Color(0xFF9BA3B4), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                Text(
+                    text = title,
+                    color = if (isPositive && !selected) Color(0xFF4ADE80) else theme.textPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = subtitle,
+                    color = theme.textSecondary,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            val badgeTint = if (isPositive) Color(0xFF4ADE80) else theme.textSecondary
+            Surface(
+                color = if (isPositive) Color(0xFF4ADE80).copy(alpha = 0.14f) else Color.White.copy(alpha = 0.06f),
+                shape = RoundedCornerShape(6.dp),
+                border = BorderStroke(
+                    1.dp,
+                    if (isPositive) Color(0xFF4ADE80).copy(alpha = 0.45f) else theme.borderSubtle
+                )
+            ) {
+                Text(
+                    text = badge,
+                    color = badgeTint,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                )
             }
         }
     }

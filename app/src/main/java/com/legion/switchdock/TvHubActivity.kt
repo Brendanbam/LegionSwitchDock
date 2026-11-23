@@ -24,23 +24,29 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -48,6 +54,7 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -57,6 +64,7 @@ import androidx.compose.material.icons.rounded.BatteryFull
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Gamepad
 import androidx.compose.material.icons.rounded.Lan
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Thermostat
 import androidx.compose.material.icons.rounded.Tv
@@ -67,6 +75,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -78,18 +87,28 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -174,22 +193,27 @@ class TvHubActivity : ComponentActivity() {
 
         setContent {
             MaterialTheme {
+                val initialPrefs = remember { DockPreferences(this) }
+                var cursorAccent by remember {
+                    mutableStateOf(HubTheme.fromId(initialPrefs.getThemeId(initialPrefs.activeProfile)).accent)
+                }
                 Box(Modifier.fillMaxSize()) {
-                SwitchTvHubScreen(
-                    targetDisplayId = targetDisplayId,
-                    bluetooth = bluetoothHub,
-                    commands = controllerCommands,
-                    onLaunchApp = { app -> launchAppOnTv(app) },
-                    onSetKeepScreenOn = { keepOn ->
-                        if (keepOn) {
-                            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                        } else {
-                            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                        }
-                    },
-                    onExitHub = { finish() }
-                )
-                if (cursorVisible.value) TouchpadCursor(cursorPos.value)
+                    SwitchTvHubScreen(
+                        targetDisplayId = targetDisplayId,
+                        bluetooth = bluetoothHub,
+                        commands = controllerCommands,
+                        onLaunchApp = { app -> launchAppOnTv(app) },
+                        onSetKeepScreenOn = { keepOn ->
+                            if (keepOn) {
+                                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                            } else {
+                                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                            }
+                        },
+                        onThemeChanged = { cursorAccent = it.accent },
+                        onExitHub = { finish() }
+                    )
+                    if (cursorVisible.value) TouchpadCursor(cursorPos.value, cursorAccent)
                 }
             }
         }
@@ -548,16 +572,16 @@ class TvHubActivity : ComponentActivity() {
     }
 }
 
-/** The hub's touchpad cursor: a white dot with a cyan ring, drawn above everything. */
+/** The hub's touchpad cursor: a crisp dot with a theme-accent ring, drawn above everything. */
 @Composable
-private fun TouchpadCursor(pos: Offset) {
+private fun TouchpadCursor(pos: Offset, accent: Color = Color(0xFF00E5FF)) {
     Box(
         modifier = Modifier
             .offset { val r = 14.dp.roundToPx(); IntOffset(pos.x.roundToInt() - r, pos.y.roundToInt() - r) }
             .size(28.dp)
-            .clip(RoundedCornerShape(50))
-            .background(Color.White.copy(alpha = 0.92f))
-            .border(BorderStroke(3.dp, Color(0xFF00E5FF)), RoundedCornerShape(50))
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = 0.94f))
+            .border(BorderStroke(2.5.dp, accent), CircleShape)
     )
 }
 
@@ -568,6 +592,7 @@ private fun SwitchTvHubScreen(
     commands: MutableSharedFlow<ControllerCommand>,
     onLaunchApp: (AppEntry) -> Unit,
     onSetKeepScreenOn: (Boolean) -> Unit,
+    onThemeChanged: (HubTheme) -> Unit,
     onExitHub: () -> Unit
 ) {
     val context = LocalContext.current
@@ -645,6 +670,10 @@ private fun SwitchTvHubScreen(
 
     LaunchedEffect(isIdleDimmed) {
         onSetKeepScreenOn(!isIdleDimmed)
+    }
+
+    LaunchedEffect(activeTheme) {
+        onThemeChanged(activeTheme)
     }
 
     // Handle all controller commands deterministically using live state (never stale vals!)
@@ -908,6 +937,18 @@ private fun SwitchTvHubScreen(
         }
     }
 
+    // Android external displays may expose 1920–3840 logical dp. Without a
+    // TV-specific density, 12–54sp labels and 158dp cards become tiny at 4K.
+    // Normalize the hub to an approximately 1280x720 design canvas in TV
+    // mode. XR retains its native density and transparent black behavior.
+    val displayConfiguration = LocalConfiguration.current
+    val platformDensity = LocalDensity.current
+    val tvScale = if (isGlasses) 1f else minOf(
+        displayConfiguration.screenWidthDp / 1280f,
+        displayConfiguration.screenHeightDp / 720f
+    ).coerceIn(1f, 3f)
+    val hubDensity = Density(platformDensity.density * tvScale, platformDensity.fontScale)
+    CompositionLocalProvider(LocalDensity provides hubDensity) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -917,20 +958,63 @@ private fun SwitchTvHubScreen(
                 )
             )
     ) {
+        // Original bundled panoramic artwork: matches the approved reference and
+        // doesn't require an internet connection. XR stays truly black.
+        if (!isGlasses) {
+            Image(
+                painter = painterResource(R.drawable.orbit_cosmos_bg),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+            Box(
+                modifier = Modifier.fillMaxSize().background(
+                    Brush.horizontalGradient(
+                        listOf(
+                            Color(0xD9070619),
+                            Color(0x82070518),
+                            Color(0x1208051D),
+                            Color(0x08080613)
+                        )
+                    )
+                )
+            )
+            Box(
+                modifier = Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(
+                        listOf(Color(0x53040616),Color.Transparent,Color(0x8B060819))
+                    )
+                )
+            )
+        }
+
         val configuration = LocalConfiguration.current
         // Glasses: the edge margin, or the smaller screen size if that leaves more room around the hub
         val glassesMarginFraction = if (isGlasses) {
             maxOf(prefs.glassesEdgeMarginPct / 100f, (100 - screenSizeTick.let { prefs.glassesScreenSizePct }) / 200f)
         } else 0f
-        val outerPadH = 44.dp + (configuration.screenWidthDp * glassesMarginFraction).dp
-        val outerPadV = 28.dp + (configuration.screenHeightDp * glassesMarginFraction).dp
+        val outerPadH = (if (isGlasses) 44.dp else 32.dp) + (configuration.screenWidthDp * glassesMarginFraction).dp
+        val outerPadV = (if (isGlasses) 28.dp else 16.dp) + (configuration.screenHeightDp * glassesMarginFraction).dp
+        // Fit the featured artwork and up to six launch tiles on the actual display,
+        // rather than assuming TV density / usable width is identical to a tablet.
+        // Size of the scaled layout canvas (≈1280×720 on a 4K TV), for all size decisions below
+        val canvasWidthDp = configuration.screenWidthDp / tvScale
+        val canvasHeightDp = configuration.screenHeightDp / tvScale
+        val compactHome = !isGlasses && canvasHeightDp < 610f
+        val visibleDockTiles = (pinnedApps.size + 2).coerceIn(2, 6)
+        val availableDockDp = configuration.screenWidthDp.toFloat() / tvScale - outerPadH.value * 2f
+        val dockCardWidth = if (isGlasses) 158.dp else
+            ((availableDockDp - 44f - (visibleDockTiles - 1) * 12f) / visibleDockTiles)
+                .coerceIn(90f, 174f).dp
+        val dockCardHeight = if (compactHome) 92.dp else 114.dp
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = outerPadH, vertical = outerPadV),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Top Switch-Style Status Bar
+            // Top Console Telemetry Pill Bar
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -938,12 +1022,12 @@ private fun SwitchTvHubScreen(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Surface(
-                        color = activeTheme.accent.copy(alpha = 0.16f),
+                        color = activeTheme.accent.copy(alpha = 0.14f),
                         shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, activeTheme.accent.copy(alpha = 0.55f))
+                        border = BorderStroke(1.dp, activeTheme.accent.copy(alpha = 0.45f))
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
@@ -954,33 +1038,42 @@ private fun SwitchTvHubScreen(
                                 if (isGlasses) Icons.Rounded.ViewInAr else Icons.Rounded.Tv,
                                 contentDescription = null,
                                 tint = activeTheme.accent,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                             Text(
-                                text = if (isGlasses) "LEGION XR" else "LEGION SWITCH",
-                                color = Color.White,
+                                text = if (isGlasses) "LEGION XR" else "LEGION SWITCH DOCK",
+                                color = activeTheme.textPrimary,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                letterSpacing = 1.2.sp
+                                fontSize = 12.sp,
+                                letterSpacing = 1.4.sp
                             )
                         }
                     }
-                    Text(
-                        text = displaySummary,
-                        color = Color(0xFF9BA3B4),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+
+                    Surface(
+                        color = activeTheme.surfaceGlass,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, activeTheme.borderSubtle)
+                    ) {
+                        Text(
+                            text = if (isGlasses) displaySummary else "ORBIT HOME  ·  $displaySummary",
+                            color = activeTheme.textSecondary,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
 
                     val lowPad = health.controllers.firstOrNull { (it.batteryPercent ?: 100) <= 20 }
                     if (lowPad != null) {
                         Surface(
-                            color = Color(0xFFEF4444).copy(alpha = 0.20f),
-                            shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, Color(0xFFEF4444))
+                            color = Color(0xFFEF4444).copy(alpha = 0.16f),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.65f))
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
@@ -988,10 +1081,10 @@ private fun SwitchTvHubScreen(
                                     Icons.Rounded.Gamepad,
                                     contentDescription = "Low Controller Battery",
                                     tint = Color(0xFFF87171),
-                                    modifier = Modifier.size(16.dp)
+                                    modifier = Modifier.size(15.dp)
                                 )
                                 Text(
-                                    text = "Controller Low (${lowPad.batteryPercent}%)",
+                                    text = "Pad Low (${lowPad.batteryPercent}%)",
                                     color = Color(0xFFFCA5A5),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold
@@ -1002,28 +1095,28 @@ private fun SwitchTvHubScreen(
 
                     if (isGlasses && prefs.glassesBatteryWarning && !health.isCharging && health.batteryPercent <= 20) {
                         Surface(
-                            color = Color(0xFFEF4444).copy(alpha = 0.20f),
-                            shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, Color(0xFFEF4444))
+                            color = Color(0xFFEF4444).copy(alpha = 0.16f),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.65f))
                         ) {
                             Text(
-                                text = "Tablet ${health.batteryPercent}% • Glasses run on tablet power",
+                                text = "Tablet ${health.batteryPercent}% • Glasses powered by tablet",
                                 color = Color(0xFFFCA5A5),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                             )
                         }
                     }
 
                     if (health.isThermalWarning && prefs.thermalWarningEnabled) {
                         Surface(
-                            color = Color(0xFFF59E0B).copy(alpha = 0.18f),
-                            shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, Color(0xFFF59E0B))
+                            color = Color(0xFFF59E0B).copy(alpha = 0.16f),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.65f))
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
@@ -1031,10 +1124,10 @@ private fun SwitchTvHubScreen(
                                     Icons.Rounded.Thermostat,
                                     contentDescription = "High Temp",
                                     tint = Color(0xFFF59E0B),
-                                    modifier = Modifier.size(16.dp)
+                                    modifier = Modifier.size(15.dp)
                                 )
                                 Text(
-                                    text = "${String.format(Locale.US, "%.1f", health.temperatureC)}°C • Bypass Charging Recommended",
+                                    text = "${String.format(Locale.US, "%.1f", health.temperatureC)}°C • Bypass Recommended",
                                     color = Color(0xFFFBBF24),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold
@@ -1044,169 +1137,522 @@ private fun SwitchTvHubScreen(
                     }
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                // Right Cluster: Unified Glass HUD Pill
+                Surface(
+                    color = activeTheme.surfaceGlass,
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, activeTheme.borderSubtle)
                 ) {
-                    if (health.controllers.isNotEmpty()) {
-                        val firstCtrl = health.controllers.first()
-                        val ctrlLabel = buildString {
-                            if (health.controllers.size > 1) {
-                                append("${health.controllers.size} Pads")
-                            } else {
-                                append("Pad")
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        if (health.controllers.isNotEmpty()) {
+                            val firstCtrl = health.controllers.first()
+                            val ctrlLabel = buildString {
+                                if (health.controllers.size > 1) {
+                                    append("${health.controllers.size} Pads")
+                                } else {
+                                    append("Pad")
+                                }
+                                if (firstCtrl.batteryPercent != null) {
+                                    append(" ${firstCtrl.batteryPercent}%")
+                                }
                             }
-                            if (firstCtrl.batteryPercent != null) {
-                                append(" ${firstCtrl.batteryPercent}%")
+                            val padPct = firstCtrl.batteryPercent
+                            val padTint = when {
+                                padPct != null && padPct <= 20 -> Color(0xFFF87171)
+                                padPct != null && padPct <= 40 -> Color(0xFFFBBF24)
+                                else -> Color(0xFF4ADE80)
                             }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(padTint)
+                                )
+                                Icon(
+                                    Icons.Rounded.Gamepad,
+                                    contentDescription = "Controller Connected",
+                                    tint = padTint,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                                Text(
+                                    text = ctrlLabel,
+                                    color = padTint,
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Box(
+                                Modifier
+                                    .width(1.dp)
+                                    .height(14.dp)
+                                    .background(activeTheme.borderSubtle)
+                            )
                         }
-                        val padPct = firstCtrl.batteryPercent
-                        val padTint = when {
-                            padPct != null && padPct <= 20 -> Color(0xFFF87171)
-                            padPct != null && padPct <= 40 -> Color(0xFFFBBF24)
-                            else -> Color(0xFF4ADE80)
-                        }
+
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Icon(
-                                Icons.Rounded.Gamepad,
-                                contentDescription = "Controller Connected",
-                                tint = padTint,
-                                modifier = Modifier.size(20.dp)
+                                if (networkType == "Ethernet") Icons.Rounded.Lan else Icons.Rounded.Wifi,
+                                contentDescription = networkType,
+                                tint = if (networkType == "Offline") Color(0xFFF87171) else activeTheme.textSecondary,
+                                modifier = Modifier.size(16.dp)
                             )
-                            Text(ctrlLabel, color = padTint, fontSize = 13.sp)
+                            Text(
+                                text = networkType,
+                                color = if (networkType == "Offline") Color(0xFFF87171) else activeTheme.textSecondary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+
+                        Box(
+                            Modifier
+                                .width(1.dp)
+                                .height(14.dp)
+                                .background(activeTheme.borderSubtle)
+                        )
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Icon(
+                                if (health.isCharging) Icons.Rounded.BatteryChargingFull else Icons.Rounded.BatteryFull,
+                                contentDescription = "Battery",
+                                tint = if (health.isCharging) Color(0xFF4ADE80) else activeTheme.textPrimary,
+                                modifier = Modifier.size(17.dp)
+                            )
+                            Text(
+                                text = "${health.batteryPercent}% · ${String.format(Locale.US, "%.0f", health.temperatureC)}°C",
+                                color = activeTheme.textPrimary,
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+
+                        Box(
+                            Modifier
+                                .width(1.dp)
+                                .height(14.dp)
+                                .background(activeTheme.borderSubtle)
+                        )
+
+                        Text(
+                            text = currentTime,
+                            color = activeTheme.textPrimary,
+                            fontSize = 14.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            // ORBIT HOME: visual-first command deck with controller-owned selection.
+            // No extra focus layer: existing controller indices still drive the whole screen.
+            Column(
+                modifier = Modifier.fillMaxWidth().weight(1f).padding(top = if (compactHome) 5.dp else 12.dp, bottom = 6.dp),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                val heroApp = pinnedApps.getOrNull(safeTileIndex)
+                val isPc = focusedPackage == AppRepository.PLAY_PC_ID
+                val isArtemis = focusedPackage == AppRepository.ARTEMIS_LEGION_PACKAGE ||
+                    (heroApp?.label?.contains("Artemis", ignoreCase = true) == true)
+                val isStream = isPc || (focusedPackage != null && ArtemisBoostManager.isStreamingPackage(focusedPackage))
+                val eyebrowText = when {
+                    isPc -> "DIRECT LINK  /  ARTEMIS LEGION"
+                    isArtemis -> "STREAMING MODE  /  ARTEMIS LEGION"
+                    isStream -> "STREAMING  /  LOW LATENCY"
+                    heroApp != null -> "LIBRARY  /  FAVORITE ${safeTileIndex + 1}"
+                    safeTileIndex == pinnedApps.size -> "EXPLORE  /  INSTALLED APPS"
+                    else -> "SYSTEM  /  CONTROL CENTER"
+                }
+                val subtitleText = when {
+                    isPc -> "Your PC is one press away. Pick up exactly where you left off."
+                    isArtemis -> "Stream Artemis Legion to your TV. Your games, worlds and content on the big screen."
+                    isStream -> "Launch your stream on the big screen with optimized connectivity."
+                    heroApp != null -> "Your next session starts here. Press A to launch on the TV."
+                    safeTileIndex == pinnedApps.size -> "Browse ${allApps.size} installed apps and choose what stays in your dock."
+                    else -> "Audio, controller pairing, power and display options."
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 6.dp, vertical = if (compactHome) 4.dp else 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(18.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Title and action sit directly on the ambient canvas, not inside a card.
+                    Column(
+                        modifier = Modifier.weight(1.25f),
+                        verticalArrangement = Arrangement.spacedBy(if (canvasHeightDp < 550f) 7.dp else 11.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                            Box(Modifier.size(7.dp).clip(CircleShape).background(activeTheme.accent))
+                            Text(
+                                text = eyebrowText,
+                                color = activeTheme.accent,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 2.sp
+                            )
+                        }
+                        Crossfade(targetState = if (isArtemis) "Artemis Legion" else focusedTitle, animationSpec = tween(250), label = "orbitHeroTitle") { title ->
+                            Text(
+                                text = title,
+                                color = activeTheme.textPrimary,
+                                fontSize = if (canvasWidthDp < 850f) 37.sp else 54.sp,
+                                lineHeight = if (canvasWidthDp < 850f) 42.sp else 57.sp,
+                                letterSpacing = (-1.8).sp,
+                                fontWeight = FontWeight.Black,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Text(
+                            text = subtitleText,
+                            color = activeTheme.textSecondary,
+                            fontSize = 15.sp,
+                            lineHeight = 21.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .shadow(
+                                        elevation = 16.dp,
+                                        shape = RoundedCornerShape(50),
+                                        ambientColor = Color(0xFFB645FF),
+                                        spotColor = Color(0xFF10DFFF)
+                                    )
+                                    .clip(RoundedCornerShape(50))
+                                    .background(Brush.horizontalGradient(
+                                        listOf(Color(0xFFB742F4),Color(0xFF7440D4),Color(0xFF00CFFF))
+                                    ))
+                                    .border(2.dp, Color(0xFFF5E5FF), RoundedCornerShape(50))
+                                    .clickable {
+                                        val app = pinnedApps.getOrNull(safeTileIndex)
+                                        if (app != null) onLaunchApp(app)
+                                        else if (safeTileIndex == pinnedApps.size) {
+                                            selectedDrawerIndex = 0
+                                            showAllAppsDrawer = true
+                                        } else {
+                                            selectedMenuIndex = 0
+                                            showQuickMenu = true
+                                        }
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 11.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier.size(28.dp)
+                                            .clip(CircleShape).background(Color.White),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("A",color = Color(0xFF34205B),fontSize = 16.sp,fontWeight = FontWeight.Black)
+                                    }
+                                    Text(
+                                        text = if (heroApp != null) "PLAY NOW" else "OPEN",
+                                        color = Color.White,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        letterSpacing = 1.sp
+                                    )
+                                }
+                            }
+                            Text(
+                                text = if (isStream) (if (prefs.artemisWifiBoostEnabled) "● LOW LATENCY ON" else "● STREAM READY") else "● TV READY",
+                                color = activeTheme.textSecondary,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
                         }
                     }
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    // Giant neon-framed showcase, matching the concept rather than a floating app icon.
+                    Box(
+                        modifier = Modifier
+                            .weight(if (compactHome) 1.20f else 1.08f)
+                            // 16:9 showcase on both tablet and TV. The previous
+                            // fillMaxHeight stretched it into a giant portrait slab
+                            // on 4K displays and cropped the cinematic artwork.
+                            .aspectRatio(16f / 9f)
+                            .shadow(
+                                elevation = 18.dp,
+                                shape = RoundedCornerShape(24.dp),
+                                ambientColor = Color(0xFFAC39FF),
+                                spotColor = Color(0xFF05CBFF)
+                            )
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(Color(0xFF080D2A))
+                            .border(
+                                width = 2.5.dp,
+                                brush = Brush.linearGradient(
+                                    listOf(Color(0xFFE879FF),Color(0xFF9F59F3),Color(0xFF10E2FC))
+                                ),
+                                shape = RoundedCornerShape(24.dp)
+                            )
                     ) {
-                        Icon(
-                            if (networkType == "Ethernet") Icons.Rounded.Lan else Icons.Rounded.Wifi,
-                            contentDescription = networkType,
-                            tint = Color(0xFFD1D5DB),
-                            modifier = Modifier.size(19.dp)
-                        )
-                        Text(networkType, color = Color(0xFFD1D5DB), fontSize = 14.sp)
+                        Crossfade(
+                            targetState = safeTileIndex,
+                            animationSpec = tween(340),
+                            label = "featuredArtworkFade"
+                        ) { index ->
+                            val app = pinnedApps.getOrNull(index)
+                            val showCinematicPoster = !isGlasses && (
+                                app?.packageName == AppRepository.ARTEMIS_LEGION_PACKAGE ||
+                                app?.packageName == AppRepository.PLAY_PC_ID ||
+                                app?.label?.contains("Artemis", ignoreCase = true) == true
+                            )
+                            Box(Modifier.fillMaxSize()) {
+                                if (showCinematicPoster) {
+                                    Image(
+                                        painter = painterResource(R.drawable.orbit_artemis_poster),
+                                        contentDescription = "Original futuristic city showcase illustration",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else if (app?.banner != null) {
+                                    Image(
+                                        bitmap = app.banner,
+                                        contentDescription = app.label,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else if (!isGlasses) {
+                                    CosmicCityArtwork(
+                                        theme = activeTheme,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
+                                    Box(Modifier.fillMaxSize().background(activeTheme.surfaceElevated))
+                                }
+                                // The new detailed poster is artwork only; use real Compose
+                                // text to keep its title crisp on TV and small displays.
+                                if (showCinematicPoster) {
+                                    Box(
+                                        Modifier.fillMaxSize().background(
+                                            Brush.verticalGradient(
+                                                listOf(Color.Transparent, Color.Transparent, Color(0xDB06091F))
+                                            )
+                                        )
+                                    )
+                                    Column(
+                                        modifier = Modifier.align(Alignment.BottomStart)
+                                            .padding(start = 22.dp, bottom = 16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(
+                                            if (app?.packageName == AppRepository.PLAY_PC_ID) "PLAY PC" else "ARTEMIS LEGION",
+                                            color = Color.White,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 26.sp,
+                                            letterSpacing = 1.1.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            "READY TO PLAY",
+                                            color = Color(0xFFD7C0F3),
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 11.sp,
+                                            letterSpacing = 1.2.sp
+                                        )
+                                    }
+                                } else {
+                                Box(
+                                    Modifier.fillMaxSize().background(
+                                        Brush.verticalGradient(
+                                            listOf(Color(0x32080927), Color.Transparent, Color(0xE6080920))
+                                        )
+                                    )
+                                )
+                                Row(
+                                    modifier = Modifier.align(Alignment.TopStart)
+                                        .padding(18.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(9.dp)
+                                ) {
+                                    if (app != null) {
+                                        Image(
+                                            bitmap = app.icon,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(34.dp).clip(RoundedCornerShape(9.dp))
+                                        )
+                                    } else {
+                                        Icon(
+                                            if (index == pinnedApps.size) Icons.Rounded.Apps else Icons.Rounded.Settings,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(30.dp)
+                                        )
+                                    }
+                                    Text(
+                                        text = "LEGION  /  FEATURED",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        letterSpacing = 1.4.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Column(
+                                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 22.dp, bottom = 18.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = (app?.label ?: if (index == pinnedApps.size) "YOUR LIBRARY" else "QUICK MENU").uppercase(),
+                                        color = Color.White,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 26.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = if (app != null) "READY TO PLAY" else "EXPLORE & CUSTOMIZE",
+                                        color = Color(0xFFC8B4EA),
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        letterSpacing = 1.2.sp
+                                    )
+                                }
+                                }
+                            }
+                        }
                     }
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(
-                            if (health.isCharging) Icons.Rounded.BatteryChargingFull else Icons.Rounded.BatteryFull,
-                            contentDescription = "Battery",
-                            tint = if (health.isCharging) Color(0xFF4ADE80) else Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text(
-                            text = "${health.batteryPercent}% (${String.format(Locale.US, "%.0f", health.temperatureC)}°C)",
-                            color = Color.White,
-                            fontSize = 14.sp
-                        )
-                    }
-
-                    Text(
-                        text = currentTime,
-                        color = Color.White,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
                 }
-            }
-
-            // Center Focused Title + Horizontal 16:9 Switch Card Row
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(20.dp)
-            ) {
-                Text(
-                    text = focusedTitle,
-                    color = Color.White,
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(start = 6.dp)
-                )
-
-                LazyRow(
-                    state = rowListState,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(22.dp)
+                // Floating carousel – the only interactive selection rail on the TV home.
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(if (compactHome) 5.dp else 8.dp)
                 ) {
-                    itemsIndexed(pinnedApps, key = { _, app -> app.packageName }) { index, app ->
-                        SwitchAppTile(
-                            app = app,
-                            isSelected = (safeTileIndex == index),
-                            onClick = {
-                                selectedTileIndex = index
-                                onLaunchApp(app)
-                            }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(Modifier.size(5.dp).clip(CircleShape).background(activeTheme.accent))
+                            Text(
+                                "YOUR COLLECTION",
+                                color = activeTheme.textPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 1.8.sp
+                            )
+                        }
+                        Text(
+                            "${pinnedApps.size} PINNED  ·  L1/R1 REORDER",
+                            color = activeTheme.textSecondary,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace
                         )
                     }
-
-                    item(key = "add_more_apps_tile") {
-                        val idx = pinnedApps.size
-                        ActionTile(
-                            title = "All Apps & Pin",
-                            icon = Icons.Rounded.Add,
-                            accent = Color(0xFF00E5FF),
-                            isSelected = (safeTileIndex == idx),
-                            onClick = {
-                                selectedTileIndex = idx
-                                SwitchAudioFeedback.playMenu(context)
-                                selectedDrawerIndex = 0
-                                showAllAppsDrawer = true
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color(0xCC0D1034),
+                        border = BorderStroke(1.5.dp, Brush.horizontalGradient(listOf(Color(0xFFA750FF), Color(0xFF5A4D96), Color(0xFF13D9FF))))
+                    ) {
+                        LazyRow(
+                            state = rowListState,
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 22.dp, vertical = if (compactHome) 10.dp else 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            itemsIndexed(pinnedApps, key = { _, app -> app.packageName }) { index, app ->
+                                SwitchAppTile(
+                                    app = app,
+                                    isSelected = safeTileIndex == index,
+                                    theme = activeTheme,
+                                    onClick = {
+                                        selectedTileIndex = index
+                                        onLaunchApp(app)
+                                    },
+                                    tileWidth = dockCardWidth,
+                                    tileHeight = dockCardHeight
+                                )
                             }
-                        )
-                    }
-
-                    item(key = "quick_menu_tile") {
-                        val idx = pinnedApps.size + 1
-                        ActionTile(
-                            title = "Quick Menu",
-                            icon = Icons.Rounded.Settings,
-                            accent = Color(0xFF4ADE80),
-                            isSelected = (safeTileIndex == idx),
-                            onClick = {
-                                selectedTileIndex = idx
-                                SwitchAudioFeedback.playMenu(context)
-                                selectedMenuIndex = 0
-                                showQuickMenu = true
+                            item(key = "add_more_apps_tile") {
+                                val idx = pinnedApps.size
+                                ActionTile(
+                                    title = "All Apps",
+                                    icon = Icons.Rounded.Add,
+                                    theme = activeTheme,
+                                    isSelected = safeTileIndex == idx,
+                                    onClick = {
+                                        selectedTileIndex = idx
+                                        selectedDrawerIndex = 0
+                                        showAllAppsDrawer = true
+                                    },
+                                    tileWidth = dockCardWidth,
+                                    tileHeight = dockCardHeight
+                                )
                             }
-                        )
+                            item(key = "quick_menu_tile") {
+                                val idx = pinnedApps.size + 1
+                                ActionTile(
+                                    title = "Quick Menu",
+                                    icon = Icons.Rounded.Settings,
+                                    theme = activeTheme,
+                                    isSelected = safeTileIndex == idx,
+                                    onClick = {
+                                        selectedTileIndex = idx
+                                        selectedMenuIndex = 0
+                                        showQuickMenu = true
+                                    },
+                                    tileWidth = dockCardWidth,
+                                    tileHeight = dockCardHeight
+                                )
+                            }
+                        }
                     }
                 }
             }
 
-            // Bottom Switch-Style Controller Legend
+            // Bottom Console Controller Legend
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                    ButtonPrompt("A", "Launch")
-                    ButtonPrompt("L/R", "Reorder")
-                    ButtonPrompt("X", "Unpin")
-                    ButtonPrompt("Y", "All Apps")
-                    ButtonPrompt("Start", "Quick Menu")
+                Row(horizontalArrangement = Arrangement.spacedBy(if (compactHome) 8.dp else 14.dp)) {
+                    ButtonPrompt("A", "Launch", activeTheme)
+                    ButtonPrompt("B", "Back", activeTheme)
+                    ButtonPrompt("Y", "Library", activeTheme)
+                    ButtonPrompt("X", "Pin / Unpin", activeTheme)
+                    if (!compactHome) ButtonPrompt("L1/R1", "Reorder", activeTheme)
+                    ButtonPrompt("Start", if (compactHome) "Menu" else "Quick Menu", activeTheme)
                 }
 
-                Text(
-                    text = "Exit Hub",
-                    color = Color(0xFF9BA3B4),
-                    fontSize = 14.sp,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { onExitHub() }
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                )
+                Surface(
+                    color = activeTheme.surfaceGlass,
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, activeTheme.borderSubtle),
+                    modifier = Modifier.clickable { onExitHub() }
+                ) {
+                    Text(
+                        text = "Exit Hub",
+                        color = activeTheme.textSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
             }
         }
 
@@ -1217,6 +1663,7 @@ private fun SwitchTvHubScreen(
                 pinnedPackages = pinnedApps.map { it.packageName }.toSet(),
                 selectedIndex = selectedDrawerIndex.coerceIn(0, (allApps.size - 1).coerceAtLeast(0)),
                 gridState = drawerGridState,
+                activeTheme = activeTheme,
                 onLaunchApp = { idx, app ->
                     selectedDrawerIndex = idx
                     showAllAppsDrawer = false
@@ -1269,7 +1716,7 @@ private fun SwitchTvHubScreen(
 
         // In-hub Bluetooth devices screen
         if (bluetooth.visible) {
-            BluetoothPanel(bluetooth)
+            BluetoothPanel(bluetooth, activeTheme)
         }
 
         // 5-Minute Idle Dimmer / Screensaver Clock
@@ -1281,7 +1728,7 @@ private fun SwitchTvHubScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.90f))
+                    .background(Color.Black.copy(alpha = 0.92f))
                     .clickable {
                         lastInteractionMs = System.currentTimeMillis()
                         isIdleDimmed = false
@@ -1292,24 +1739,188 @@ private fun SwitchTvHubScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = currentTime,
-                        color = Color.White.copy(alpha = 0.88f),
+                        color = Color.White.copy(alpha = 0.90f),
                         fontSize = 72.sp,
                         fontWeight = FontWeight.Light
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
                         text = "$currentDate • ${health.batteryPercent}% (${String.format(Locale.US, "%.1f", health.temperatureC)}°C)",
-                        color = Color(0xFF9BA3B4),
+                        color = activeTheme.textSecondary,
                         fontSize = 18.sp
                     )
                     Spacer(Modifier.height(22.dp))
                     Text(
                         text = "Press any controller button to wake",
-                        color = Color(0xFF00E5FF).copy(alpha = 0.8f),
+                        color = activeTheme.accent.copy(alpha = 0.85f),
                         fontSize = 14.sp
                     )
                 }
             }
+        }
+    }
+    }
+}
+
+/** Built-in original sci-fi vista for apps with no launcher banner.
+ * A glowing portal and city skyline make every selection feel like a feature poster. */
+@Composable
+private fun CosmicCityArtwork(theme: HubTheme, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val w=size.width
+        val h=size.height
+        val neon = Color(0xFFDC53FF)
+        val cyan = Color(0xFF10E3FF)
+        drawRect(Brush.verticalGradient(
+            listOf(Color(0xFF07102D),Color(0xFF212063),Color(0xFF56147B),Color(0xFF0B123A))
+        ))
+        listOf(
+            Triple(Offset(w*.31f,h*.28f),h*.45f,neon),
+            Triple(Offset(w*.79f,h*.43f),h*.55f,cyan),
+            Triple(Offset(w*.72f,h*.71f),h*.38f,neon)
+        ).forEach{(p,r,color)->
+            drawCircle(Brush.radialGradient(
+                listOf(color.copy(alpha=.40f),color.copy(alpha=.09f),Color.Transparent),p,r
+            ),radius=r,center=p)
+        }
+        val p=Offset(w*.66f,h*.45f)
+        val planetR=h*.32f
+        drawCircle(Brush.radialGradient(
+            listOf(Color(0xFFB15BFF),Color(0xFF413E91),Color(0xFF071E52)),
+            center=Offset(p.x-planetR*.42f,p.y-planetR*.46f),
+            radius=planetR*1.64f
+        ),radius=planetR,center=p)
+        drawCircle(
+            brush=Brush.sweepGradient(listOf(neon,cyan,neon),center=p),
+            radius=planetR*.98f, center=p, style=Stroke(width=3.dp.toPx())
+        )
+        rotate(-23f,pivot=p){
+            drawOval(
+                color=neon.copy(alpha=.84f),
+                topLeft=Offset(p.x-planetR*1.75f,p.y-planetR*.37f),
+                size=Size(planetR*3.5f,planetR*.74f),
+                style=Stroke(width=3.dp.toPx())
+            )
+            drawOval(
+                color=cyan.copy(alpha=.56f),
+                topLeft=Offset(p.x-planetR*1.65f,p.y-planetR*.31f),
+                size=Size(planetR*3.3f,planetR*.62f),
+                style=Stroke(width=1.5.dp.toPx())
+            )
+        }
+        for (i in 0..85){
+            val x=w*(((i*31+7)%101)/101f)
+            val y=h*(((i*57+17)%97)/97f)*.68f
+            drawCircle(Color.White.copy(alpha=if(i%9==0).75f else .27f),
+                radius=if(i%9==0)1.2.dp.toPx() else .6.dp.toPx(),center=Offset(x,y))
+        }
+        // Citadel base and reflective causeway.
+        val base=Path().apply{
+            moveTo(w*.12f,h*.91f);lineTo(w*.31f,h*.78f)
+            lineTo(w*.76f,h*.78f);lineTo(w*.95f,h*.91f)
+            lineTo(w,h);lineTo(0f,h);close()
+        }
+        drawPath(base,Brush.verticalGradient(
+            listOf(Color(0xFF312361),Color(0xFF050B21)),h*.76f,h
+        ))
+        drawLine(brush=Brush.horizontalGradient(
+            listOf(Color.Transparent,neon,cyan,Color.Transparent)
+        ),start=Offset(w*.15f,h*.88f),end=Offset(w*.95f,h*.88f),
+        strokeWidth=3.dp.toPx())
+        // Spires have varied heights and luminous window seams.
+        for(i in 0..19){
+            val centerX=w*(.17f+i*.037f)
+            val towerHeight=h*(.09f+(((i*13+7)%11)/11f)*.31f)
+            val tw=w*(if(i%4==0).022f else .013f)
+            val top=h*.85f-towerHeight
+            drawRect(
+                brush=Brush.verticalGradient(listOf(Color(0xFF171F5F),Color(0xFF06102D))),
+                topLeft=Offset(centerX,top),size=Size(tw,towerHeight)
+            )
+            drawLine(color=if(i%3==0)cyan.copy(alpha=.85f)else neon.copy(alpha=.70f),
+                start=Offset(centerX+tw*.5f,top),
+                end=Offset(centerX+tw*.5f,h*.85f),
+                strokeWidth=1.dp.toPx())
+            if(i%4==0){
+                drawLine(color=cyan.copy(alpha=.64f),
+                    start=Offset(centerX+tw*.5f,top-h*.07f),
+                    end=Offset(centerX+tw*.5f,top),
+                    strokeWidth=2.dp.toPx())
+            }
+        }
+        // Dominant central tower reaches into the planet's halo.
+        val sx=w*.61f
+        val spire=Path().apply{
+            moveTo(sx-w*.023f,h*.84f)
+            lineTo(sx-w*.013f,h*.29f)
+            lineTo(sx,h*.18f)
+            lineTo(sx+w*.012f,h*.29f)
+            lineTo(sx+w*.024f,h*.84f);close()
+        }
+        drawPath(spire,Brush.horizontalGradient(
+            listOf(Color(0xFF0F245A),Color(0xFF592F8D),Color(0xFF071539))
+        ))
+        drawLine(color=cyan.copy(alpha=.92f),
+            start=Offset(sx,h*.21f),end=Offset(sx,h*.84f),
+            strokeWidth=2.dp.toPx())
+        drawCircle(
+            brush=Brush.radialGradient(
+                listOf(cyan.copy(alpha=.63f),Color.Transparent),
+                center=Offset(sx,h*.78f), radius=h*.23f
+            ),
+            center=Offset(sx,h*.78f),radius=h*.23f
+        )
+        // Foreground depth fade keeps title readable.
+        drawRect(Brush.verticalGradient(
+            listOf(Color.Transparent,Color(0x1B061128),Color(0xA900071B)),
+            startY=h*.45f,endY=h
+        ))
+    }
+}
+
+/** Reusable neon tile canvas: varied cyan/violet artwork for apps without banners. */
+@Composable
+private fun NeonTileBackdrop(
+    theme: HubTheme,
+    seed: Int,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val cyan = Color(0xFF00DFFF)
+        val purple = Color(0xFFB739FF)
+        val flip = seed % 3 == 0
+        drawRect(
+            Brush.linearGradient(
+                if (flip) listOf(Color(0xFF06315B),Color(0xFF10143D),Color(0xFF43145E))
+                else listOf(Color(0xFF23165C),Color(0xFF140C38),Color(0xFF530C7B)),
+                start = Offset(0f,0f), end = Offset(w,h)
+            )
+        )
+        val glow = Offset(w*(if(flip).69f else .32f),h*.41f)
+        drawCircle(
+            brush = Brush.radialGradient(
+                listOf((if(flip)cyan else purple).copy(alpha=.64f),Color.Transparent),
+                center=glow,radius=w*.54f
+            ),
+            center=glow,radius=w*.54f
+        )
+        for(i in -2..7) {
+            val x = w*i/6f
+            drawLine(
+                color = (if (flip)cyan else theme.accent).copy(alpha=.15f),
+                start = Offset(x,0f),
+                end = Offset(x+w*.39f,h),
+                strokeWidth = 1.dp.toPx()
+            )
+        }
+        for(i in 0..12) {
+            drawCircle(
+                color = Color.White.copy(alpha=if(i%4==0).54f else .16f),
+                radius=if(i%4==0)1.1.dp.toPx() else .65.dp.toPx(),
+                center=Offset(w*(((i*7+5)%17)/17f),h*(((i*11+3)%19)/19f)*.72f)
+            )
         }
     }
 }
@@ -1318,64 +1929,93 @@ private fun SwitchTvHubScreen(
 private fun SwitchAppTile(
     app: AppEntry,
     isSelected: Boolean,
-    onClick: () -> Unit
+    theme: HubTheme,
+    onClick: () -> Unit,
+    tileWidth: androidx.compose.ui.unit.Dp = 158.dp,
+    tileHeight: androidx.compose.ui.unit.Dp = 114.dp
 ) {
     val scale by animateFloatAsState(
-        targetValue = if (isSelected) 1.08f else 1.0f,
-        animationSpec = tween(140),
-        label = "tileScale"
+        targetValue = if (isSelected) 1.055f else .97f,
+        animationSpec = tween(200),
+        label = "showcaseTileFocus"
     )
-
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
+    val shape = RoundedCornerShape(18.dp)
+    Box(
         modifier = Modifier
+            .size(width = tileWidth, height = tileHeight)
             .scale(scale)
-            .clickable { onClick() }
+            .shadow(
+                elevation = if (isSelected) 17.dp else 3.dp,
+                shape = shape,
+                ambientColor = Color(0xFFB63DFF),
+                spotColor = Color(0xFF0FCDFB)
+            )
+            .clip(shape)
+            .background(theme.surfaceElevated)
+            .border(
+                width = if (isSelected) 3.dp else 1.dp,
+                brush = if (isSelected) Brush.linearGradient(
+                    listOf(Color.White,Color(0xFFCB46FF),Color(0xFF12E0FF))
+                ) else Brush.linearGradient(listOf(theme.borderSubtle,theme.borderSubtle)),
+                shape = shape
+            )
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
     ) {
+        if (app.banner != null) {
+            Image(
+                bitmap = app.banner,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            NeonTileBackdrop(
+                theme = theme,
+                seed = app.packageName.hashCode(),
+                modifier = Modifier.fillMaxSize()
+            )
+            Image(
+                bitmap = app.icon,
+                contentDescription = null,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(bottom = 14.dp)
+                    .size(if (tileWidth < 112.dp) 42.dp else 57.dp)
+                    .clip(RoundedCornerShape(12.dp))
+            )
+        }
         Box(
             modifier = Modifier
-                .width(236.dp)
-                .height(148.dp)
-                .clip(RoundedCornerShape(22.dp))
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(48.dp)
                 .background(
-                    Brush.radialGradient(
-                        colors = listOf(Color(0xFF283042), Color(0xFF1A1F2B))
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent,Color(0xF0070822))
                     )
                 )
-                .border(
-                    width = if (isSelected) 4.dp else 1.5.dp,
-                    color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF2E3545),
-                    shape = RoundedCornerShape(22.dp)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            if (app.banner != null) {
-                Image(
-                    bitmap = app.banner,
-                    contentDescription = app.label,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Image(
-                    bitmap = app.icon,
-                    contentDescription = app.label,
-                    modifier = Modifier
-                        .size(92.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(10.dp))
+        )
         Text(
             text = app.label,
-            color = if (isSelected) Color(0xFF00E5FF) else Color(0xFFB8C0D0),
-            fontSize = 15.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+            color = Color.White,
+            fontSize = if (tileWidth < 112.dp) 11.sp else 13.sp,
+            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.width(226.dp)
+            textAlign = TextAlign.Center,
+            modifier = Modifier.align(Alignment.BottomCenter)
+                .fillMaxWidth().padding(horizontal = 7.dp, vertical = 9.dp)
         )
+        if (isSelected) {
+            Box(
+                Modifier.align(Alignment.TopCenter).padding(top = 3.dp)
+                    .width(50.dp).height(3.dp).clip(RoundedCornerShape(50))
+                    .background(Brush.horizontalGradient(
+                        listOf(Color(0xFFBB4EFF),Color(0xFF00DFFF))
+                    ))
+            )
+        }
     }
 }
 
@@ -1383,51 +2023,71 @@ private fun SwitchAppTile(
 private fun ActionTile(
     title: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    accent: Color,
+    theme: HubTheme,
     isSelected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    tileWidth: androidx.compose.ui.unit.Dp = 158.dp,
+    tileHeight: androidx.compose.ui.unit.Dp = 114.dp
 ) {
+    val shape = RoundedCornerShape(18.dp)
     val scale by animateFloatAsState(
-        targetValue = if (isSelected) 1.08f else 1.0f,
-        animationSpec = tween(140),
-        label = "actionScale"
+        targetValue = if (isSelected) 1.055f else .97f,
+        animationSpec = tween(200),
+        label = "systemTileFocus"
     )
-
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
+    Box(
         modifier = Modifier
+            .size(width = tileWidth, height = tileHeight)
             .scale(scale)
-            .clickable { onClick() }
-    ) {
-        Box(
-            modifier = Modifier
-                .width(180.dp)
-                .height(148.dp)
-                .clip(RoundedCornerShape(22.dp))
-                .background(Color(0xFF191D27))
-                .border(
-                    width = if (isSelected) 4.dp else 1.5.dp,
-                    color = if (isSelected) accent else Color(0xFF2E3545),
-                    shape = RoundedCornerShape(22.dp)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = title,
-                tint = if (isSelected) accent else Color(0xFF9BA3B4),
-                modifier = Modifier.size(58.dp)
+            .shadow(
+                elevation = if (isSelected) 17.dp else 3.dp,
+                shape = shape,
+                ambientColor = Color(0xFFA83AFF),
+                spotColor = Color(0xFF07D5F9)
             )
-        }
-        Spacer(modifier = Modifier.height(10.dp))
+            .clip(shape)
+            .background(theme.surfaceElevated)
+            .border(
+                width = if (isSelected) 3.dp else 1.dp,
+                brush = if(isSelected) Brush.linearGradient(
+                    listOf(Color.White,Color(0xFFBC48FE),Color(0xFF08DAF9))
+                ) else Brush.linearGradient(listOf(theme.borderSubtle,theme.borderSubtle)),
+                shape = shape
+            )
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        NeonTileBackdrop(theme = theme, seed = title.hashCode(), modifier = Modifier.fillMaxSize())
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = Color(0xFFECE3FF),
+            modifier = Modifier.align(Alignment.Center).padding(bottom = 12.dp).size(if (tileWidth < 112.dp) 33.dp else 47.dp)
+        )
+        Box(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(48.dp)
+                .background(Brush.verticalGradient(listOf(Color.Transparent,Color(0xED090A26))))
+        )
         Text(
             text = title,
-            color = if (isSelected) accent else Color(0xFFB8C0D0),
-            fontSize = 15.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+            color = Color.White,
+            fontSize = if (tileWidth < 112.dp) 11.sp else 13.sp,
+            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            modifier = Modifier.align(Alignment.BottomCenter)
+                .fillMaxWidth().padding(horizontal = 7.dp, vertical = 9.dp)
         )
     }
 }
+
+private data class QuickMenuRowSpec(
+    val index: Int,
+    val title: String,
+    val badge: String,
+    val badgePositive: Boolean = false,
+    val onClick: () -> Unit
+)
 
 @Composable
 private fun InHubQuickMenuOverlay(
@@ -1451,6 +2111,7 @@ private fun InHubQuickMenuOverlay(
     var idleDimmer by remember { mutableStateOf(prefs.idleDimmerEnabled) }
     var bypassEnabled by remember { mutableStateOf(prefs.bypassChargingEnabled) }
     val shizukuReady = remember(selectedIndex, stateTick) { ShizukuHelper.getStatus() == ShizukuStatus.READY }
+    val listState = rememberLazyListState()
 
     LaunchedEffect(selectedIndex, stateTick) {
         volumePct = readVolumePct(audioManager)
@@ -1458,180 +2119,281 @@ private fun InHubQuickMenuOverlay(
         uiSounds = prefs.uiSoundsEnabled
         idleDimmer = prefs.idleDimmerEnabled
         bypassEnabled = prefs.bypassChargingEnabled
+        if (selectedIndex >= 3) {
+            runCatching { listState.animateScrollToItem((selectedIndex - 3).coerceAtLeast(0)) }
+        }
     }
+
+    val rows = listOf(
+        QuickMenuRowSpec(
+            index = 3,
+            title = "Bluetooth Devices",
+            badge = "OPEN",
+            onClick = {
+                onSelectIndex(3)
+                onOpenBluetooth()
+            }
+        ),
+        QuickMenuRowSpec(
+            index = 4,
+            title = "UI Navigation Sounds",
+            badge = if (uiSounds) "ON" else "OFF",
+            badgePositive = uiSounds,
+            onClick = {
+                onSelectIndex(4)
+                uiSounds = !uiSounds
+                prefs.uiSoundsEnabled = uiSounds
+            }
+        ),
+        QuickMenuRowSpec(
+            index = 5,
+            title = "5-Min Idle Screensaver",
+            badge = if (idleDimmer) "ON" else "OFF",
+            badgePositive = idleDimmer,
+            onClick = {
+                onSelectIndex(5)
+                idleDimmer = !idleDimmer
+                prefs.idleDimmerEnabled = idleDimmer
+            }
+        ),
+        QuickMenuRowSpec(
+            index = 6,
+            title = "Screensaver",
+            badge = "START NOW",
+            onClick = {
+                onSelectIndex(6)
+                onTriggerScreensaver()
+            }
+        ),
+        QuickMenuRowSpec(
+            index = 7,
+            title = if (shizukuReady) "Bypass Charging" else "Bypass Charging / Game Assistant",
+            badge = if (shizukuReady) (if (bypassEnabled) "ON" else "OFF") else "SETTINGS",
+            badgePositive = shizukuReady && bypassEnabled,
+            onClick = {
+                onSelectIndex(7)
+                if (ShizukuHelper.getStatus() == ShizukuStatus.READY) {
+                    val next = !bypassEnabled
+                    if (ShizukuHelper.setBypassCharging(context, next)) {
+                        bypassEnabled = next
+                        prefs.bypassChargingEnabled = next
+                    }
+                } else {
+                    onClose()
+                    DockHealthMonitor.openBypassChargingSettings(context)
+                }
+            }
+        ),
+        QuickMenuRowSpec(
+            index = 8,
+            title = "Display Theme",
+            badge = activeTheme.displayName,
+            badgePositive = true,
+            onClick = {
+                onSelectIndex(8)
+                onCycleTheme()
+            }
+        ),
+        QuickMenuRowSpec(
+            index = 9,
+            title = "Sleep Mode (Tablet & TV)",
+            badge = "SLEEP",
+            onClick = {
+                onSelectIndex(9)
+                onTriggerSleepMode()
+            }
+        ),
+        QuickMenuRowSpec(
+            index = 10,
+            title = "Glasses Screen Size",
+            badge = "${screenSizeTick.let { prefs.glassesScreenSizePct }}%",
+            badgePositive = true,
+            onClick = {
+                onSelectIndex(10)
+                cycleGlassesScreenSize()
+            }
+        ),
+        QuickMenuRowSpec(
+            index = 11,
+            title = "Close Menu",
+            badge = "B",
+            onClick = {
+                onSelectIndex(11)
+                onClose()
+            }
+        )
+    )
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xB8080A0E))
+            .background(Color(0xCC06080D))
             .clickable { onClose() },
         contentAlignment = Alignment.Center
     ) {
         Surface(
-            color = Color(0xFF141821),
-            shape = RoundedCornerShape(22.dp),
-            border = BorderStroke(2.dp, Color(0xFF00E5FF)),
+            color = activeTheme.surfaceModal,
+            shape = RoundedCornerShape(20.dp),
+            border = BorderStroke(1.dp, activeTheme.accent.copy(alpha = 0.45f)),
             modifier = Modifier
-                .width(500.dp)
+                .width(560.dp)
                 .clickable(enabled = false) {}
         ) {
             Column(
-                modifier = Modifier.padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                modifier = Modifier.padding(22.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = "LEGION QUICK MENU",
-                    color = Color(0xFF00E5FF),
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                val chargeLabel = if (health.isCharging) "Charging ${health.wattsEstimate}W" else "Discharging"
-                Text(
-                    text = "${health.batteryPercent}% • ${String.format(Locale.US, "%.1f", health.temperatureC)}°C • $chargeLabel",
-                    color = if (health.isThermalWarning) Color(0xFFF59E0B) else Color(0xFF9BA3B4),
-                    fontSize = 13.sp
-                )
-
-                Text(
-                    text = if (isMuted) "Media Volume: MUTED ($volumePct%)" else "Media Volume: $volumePct%",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
-                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    QuickMenuButton(
-                        label = "Vol -",
-                        isSelected = (selectedIndex == 0),
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            onSelectIndex(0)
-                            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0)
-                            volumePct = readVolumePct(audioManager)
-                            isMuted = audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
-                        }
-                    )
-                    QuickMenuButton(
-                        label = "Vol +",
-                        isSelected = (selectedIndex == 1),
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            onSelectIndex(1)
-                            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0)
-                            volumePct = readVolumePct(audioManager)
-                            isMuted = audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
-                        }
-                    )
-                    QuickMenuButton(
-                        label = if (isMuted) "Unmute" else "Mute",
-                        isSelected = (selectedIndex == 2),
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            onSelectIndex(2)
-                            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, 0)
-                            volumePct = readVolumePct(audioManager)
-                            isMuted = audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
-                        }
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = "QUICK MENU",
+                            color = activeTheme.accent,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 1.4.sp
+                        )
+                        Text(
+                            text = "System & Display Controls",
+                            color = activeTheme.textMuted,
+                            fontSize = 12.sp
+                        )
+                    }
+                    val chargeLabel = if (health.isCharging) "Charging ${health.wattsEstimate}W" else "Discharging"
+                    Surface(
+                        color = activeTheme.surfaceElevated,
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(
+                            1.dp,
+                            if (health.isThermalWarning) Color(0xFFF59E0B).copy(alpha = 0.6f) else activeTheme.borderSubtle
+                        )
+                    ) {
+                        Text(
+                            text = "${health.batteryPercent}% • ${String.format(Locale.US, "%.1f", health.temperatureC)}°C • $chargeLabel",
+                            color = if (health.isThermalWarning) Color(0xFFFBBF24) else activeTheme.textSecondary,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        )
+                    }
                 }
 
-                QuickMenuButton(
-                    label = "Bluetooth Devices",
-                    isSelected = (selectedIndex == 3),
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        onSelectIndex(3)
-                        onOpenBluetooth()
-                    }
-                )
-                QuickMenuButton(
-                    label = "UI Navigation Sounds: ${if (uiSounds) "ON" else "OFF"}",
-                    isSelected = (selectedIndex == 4),
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        onSelectIndex(4)
-                        uiSounds = !uiSounds
-                        prefs.uiSoundsEnabled = uiSounds
-                    }
-                )
-                QuickMenuButton(
-                    label = "5-Min Idle Screensaver: ${if (idleDimmer) "ON" else "OFF"}",
-                    isSelected = (selectedIndex == 5),
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        onSelectIndex(5)
-                        idleDimmer = !idleDimmer
-                        prefs.idleDimmerEnabled = idleDimmer
-                    }
-                )
-                QuickMenuButton(
-                    label = "Screensaver Now",
-                    isSelected = (selectedIndex == 6),
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        onSelectIndex(6)
-                        onTriggerScreensaver()
-                    }
-                )
-                QuickMenuButton(
-                    label = if (shizukuReady) {
-                        "Bypass Charging: ${if (bypassEnabled) "ON" else "OFF"} (Press A to Toggle)"
-                    } else {
-                        "Bypass Charging / Game Assistant"
-                    },
-                    isSelected = (selectedIndex == 7),
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        onSelectIndex(7)
-                        if (ShizukuHelper.getStatus() == ShizukuStatus.READY) {
-                            val next = !bypassEnabled
-                            if (ShizukuHelper.setBypassCharging(context, next)) {
-                                bypassEnabled = next
-                                prefs.bypassChargingEnabled = next
-                            }
-                        } else {
-                            onClose()
-                            DockHealthMonitor.openBypassChargingSettings(context)
+                // Media Volume section with live progress bar
+                Surface(
+                    color = activeTheme.surfaceElevated,
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, activeTheme.borderSubtle)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Media Volume",
+                                color = activeTheme.textPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = if (isMuted) "MUTED ($volumePct%)" else "$volumePct%",
+                                color = if (isMuted) Color(0xFFF87171) else activeTheme.accent,
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(activeTheme.borderSubtle)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(fraction = (volumePct / 100f).coerceIn(0f, 1f))
+                                    .clip(RoundedCornerShape(50))
+                                    .background(if (isMuted) activeTheme.textMuted else activeTheme.accent)
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            QuickMenuButton(
+                                label = "Vol -",
+                                badge = null,
+                                isSelected = (selectedIndex == 0),
+                                theme = activeTheme,
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    onSelectIndex(0)
+                                    audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0)
+                                    volumePct = readVolumePct(audioManager)
+                                    isMuted = audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
+                                }
+                            )
+                            QuickMenuButton(
+                                label = "Vol +",
+                                badge = null,
+                                isSelected = (selectedIndex == 1),
+                                theme = activeTheme,
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    onSelectIndex(1)
+                                    audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0)
+                                    volumePct = readVolumePct(audioManager)
+                                    isMuted = audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
+                                }
+                            )
+                            QuickMenuButton(
+                                label = if (isMuted) "Unmute" else "Mute",
+                                badge = null,
+                                isSelected = (selectedIndex == 2),
+                                theme = activeTheme,
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    onSelectIndex(2)
+                                    audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, 0)
+                                    volumePct = readVolumePct(audioManager)
+                                    isMuted = audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
+                                }
+                            )
                         }
                     }
-                )
-                QuickMenuButton(
-                    label = "Theme: ${activeTheme.displayName} (Press A to Cycle)",
-                    isSelected = (selectedIndex == 8),
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        onSelectIndex(8)
-                        onCycleTheme()
+                }
+
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.heightIn(max = 370.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    itemsIndexed(rows, key = { _, item -> item.index }) { _, spec ->
+                        QuickMenuButton(
+                            label = spec.title,
+                            badge = spec.badge,
+                            badgePositive = spec.badgePositive,
+                            isSelected = (selectedIndex == spec.index),
+                            theme = activeTheme,
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = spec.onClick
+                        )
                     }
-                )
-                QuickMenuButton(
-                    label = "Sleep Mode (Tablet & TV)",
-                    isSelected = (selectedIndex == 9),
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        onSelectIndex(9)
-                        onTriggerSleepMode()
-                    }
-                )
-                QuickMenuButton(
-                    label = "Glasses Screen Size: ${screenSizeTick.let { prefs.glassesScreenSizePct }}% (Press A to Change)",
-                    isSelected = (selectedIndex == 10),
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        onSelectIndex(10)
-                        cycleGlassesScreenSize()
-                    }
-                )
-                QuickMenuButton(
-                    label = "Close Menu (B)",
-                    isSelected = (selectedIndex == 11),
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        onSelectIndex(11)
-                        onClose()
-                    }
+                }
+
+                Text(
+                    text = "D-Pad / L1-R1 Navigate  •  A Select  •  B Close",
+                    color = activeTheme.textMuted,
+                    fontSize = 11.sp
                 )
             }
         }
@@ -1652,32 +2414,67 @@ private fun cycleGlassesScreenSize() {
 @Composable
 private fun QuickMenuButton(
     label: String,
+    badge: String?,
     isSelected: Boolean,
+    theme: HubTheme,
     modifier: Modifier = Modifier,
+    badgePositive: Boolean = false,
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
 
     Surface(
-        color = if (isSelected) Color(0xFF004456) else Color(0xFF1F2430),
-        shape = RoundedCornerShape(12.dp),
+        color = if (isSelected) theme.focusGlow.copy(alpha = 0.30f) else theme.surfaceElevated,
+        shape = RoundedCornerShape(11.dp),
         border = BorderStroke(
             width = if (isSelected) 2.dp else 1.dp,
-            color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF2E3545)
+            color = if (isSelected) theme.accent else theme.borderSubtle
         ),
-        modifier = modifier
-            .clickable {
-                SwitchAudioFeedback.playSelect(context)
-                onClick()
-            }
+        modifier = modifier.clickable {
+            SwitchAudioFeedback.playSelect(context)
+            onClick()
+        }
     ) {
-        Text(
-            text = label,
-            color = Color.White,
-            fontSize = 14.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp)
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = if (badge == null) Arrangement.Center else Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = label,
+                color = if (isSelected) theme.textPrimary else theme.textPrimary.copy(alpha = 0.90f),
+                fontSize = 13.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = if (badge != null) Modifier.weight(1f).padding(end = 10.dp) else Modifier
+            )
+            if (badge != null) {
+                Surface(
+                    color = when {
+                        badgePositive -> theme.accent.copy(alpha = 0.16f)
+                        isSelected -> Color.White.copy(alpha = 0.12f)
+                        else -> Color.White.copy(alpha = 0.06f)
+                    },
+                    shape = RoundedCornerShape(6.dp),
+                    border = BorderStroke(
+                        1.dp,
+                        if (badgePositive) theme.accent.copy(alpha = 0.50f) else theme.borderSubtle
+                    )
+                ) {
+                    Text(
+                        text = badge,
+                        color = if (badgePositive) theme.accent else theme.textSecondary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -1693,6 +2490,7 @@ private fun AllAppsDrawerOverlay(
     pinnedPackages: Set<String>,
     selectedIndex: Int,
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
+    activeTheme: HubTheme,
     onLaunchApp: (Int, AppEntry) -> Unit,
     onTogglePin: (Int, AppEntry) -> Unit,
     onClose: () -> Unit
@@ -1700,8 +2498,8 @@ private fun AllAppsDrawerOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xEB0B0D12))
-            .padding(36.dp)
+            .background(Color(0xEB07090E))
+            .padding(34.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
@@ -1713,90 +2511,176 @@ private fun AllAppsDrawerOverlay(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(Icons.Rounded.Apps, contentDescription = null, tint = Color(0xFF00E5FF))
+                    Surface(
+                        color = activeTheme.accent.copy(alpha = 0.14f),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, activeTheme.accent.copy(alpha = 0.45f))
+                    ) {
+                        Icon(
+                            Icons.Rounded.Apps,
+                            contentDescription = null,
+                            tint = activeTheme.accent,
+                            modifier = Modifier.padding(8.dp).size(20.dp)
+                        )
+                    }
                     Text(
-                        text = "All Installed Apps",
-                        color = Color.White,
-                        fontSize = 24.sp,
+                        text = "Application Library",
+                        color = activeTheme.textPrimary,
+                        fontSize = 22.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    Text(
-                        text = "• Press A to Launch, X to Pin/Unpin, B to Close",
-                        color = Color(0xFF9BA3B4),
-                        fontSize = 14.sp
-                    )
+                    Surface(
+                        color = activeTheme.surfaceElevated,
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, activeTheme.borderSubtle)
+                    ) {
+                        Text(
+                            text = "${allApps.size} Apps",
+                            color = activeTheme.textSecondary,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
+                        )
+                    }
                 }
 
-                Surface(
-                    color = Color(0xFF242A38),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.clickable { onClose() }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Text(
-                        text = "Close (B)",
-                        color = Color.White,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                    )
+                    ButtonPrompt("A", "Launch", activeTheme)
+                    ButtonPrompt("X", "Pin / Unpin", activeTheme)
+                    Surface(
+                        color = activeTheme.surfaceElevated,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, activeTheme.borderSubtle),
+                        modifier = Modifier.clickable { onClose() }
+                    ) {
+                        Text(
+                            text = "Close (B)",
+                            color = activeTheme.textPrimary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                        )
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            LazyVerticalGrid(
-                state = gridState,
-                columns = GridCells.Fixed(5),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                itemsIndexed(allApps, key = { _, app -> app.packageName }) { index, app ->
-                    val isPinned = pinnedPackages.contains(app.packageName)
-                    val isSelected = (index == selectedIndex)
-
+            if (allApps.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
                     Surface(
-                        color = if (isSelected) Color(0xFF232B3A) else Color(0xFF171B24),
-                        shape = RoundedCornerShape(16.dp),
-                        border = BorderStroke(
-                            width = if (isSelected) 3.dp else 1.dp,
-                            color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF282F3E)
-                        ),
-                        modifier = Modifier
-                            .clickable { onLaunchApp(index, app) }
+                        color = activeTheme.surfaceModal,
+                        shape = RoundedCornerShape(18.dp),
+                        border = BorderStroke(1.dp, activeTheme.borderSubtle)
                     ) {
                         Column(
-                            modifier = Modifier.padding(14.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                            modifier = Modifier.padding(horizontal = 32.dp, vertical = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Box(modifier = Modifier.fillMaxWidth()) {
-                                Image(
-                                    bitmap = app.icon,
-                                    contentDescription = app.label,
-                                    modifier = Modifier
-                                        .size(64.dp)
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .align(Alignment.Center)
-                                )
-                                if (isPinned) {
-                                    Icon(
-                                        Icons.Rounded.CheckCircle,
-                                        contentDescription = "Pinned",
-                                        tint = Color(0xFF4ADE80),
-                                        modifier = Modifier
-                                            .size(20.dp)
-                                            .align(Alignment.TopEnd)
-                                            .clickable { onTogglePin(index, app) }
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Text(
-                                text = app.label,
-                                color = if (isSelected) Color(0xFF00E5FF) else Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                            Icon(
+                                Icons.Rounded.Apps,
+                                contentDescription = null,
+                                tint = activeTheme.accent,
+                                modifier = Modifier.size(36.dp)
                             )
+                            Text(
+                                text = "No launchable apps found",
+                                color = activeTheme.textPrimary,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Installed apps will appear here once loaded.",
+                                color = activeTheme.textSecondary,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+            } else {
+                LazyVerticalGrid(
+                    state = gridState,
+                    columns = GridCells.Fixed(5),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    itemsIndexed(allApps, key = { _, app -> app.packageName }) { index, app ->
+                        val isPinned = pinnedPackages.contains(app.packageName)
+                        val isSelected = (index == selectedIndex)
+
+                        Surface(
+                            color = if (isSelected) activeTheme.focusGlow.copy(alpha = 0.28f) else activeTheme.surfaceElevated,
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(
+                                width = if (isSelected) 2.dp else 1.dp,
+                                color = if (isSelected) activeTheme.accent else activeTheme.borderSubtle
+                            ),
+                            modifier = Modifier
+                                .scale(if (isSelected) 1.03f else 1.0f)
+                                .clickable { onLaunchApp(index, app) }
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Box(modifier = Modifier.fillMaxWidth()) {
+                                    Image(
+                                        bitmap = app.icon,
+                                        contentDescription = app.label,
+                                        modifier = Modifier
+                                            .size(58.dp)
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .align(Alignment.Center)
+                                    )
+                                    if (isPinned) {
+                                        Surface(
+                                            color = Color(0xFF4ADE80).copy(alpha = 0.16f),
+                                            shape = RoundedCornerShape(6.dp),
+                                            border = BorderStroke(1.dp, Color(0xFF4ADE80).copy(alpha = 0.55f)),
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .clickable { onTogglePin(index, app) }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Rounded.CheckCircle,
+                                                    contentDescription = "Pinned",
+                                                    tint = Color(0xFF4ADE80),
+                                                    modifier = Modifier.size(12.dp)
+                                                )
+                                                Text(
+                                                    text = "PIN",
+                                                    color = Color(0xFF4ADE80),
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = app.label,
+                                    color = if (isSelected) activeTheme.accent else activeTheme.textPrimary,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }
@@ -1806,26 +2690,42 @@ private fun AllAppsDrawerOverlay(
 }
 
 @Composable
-private fun ButtonPrompt(button: String, label: String) {
+private fun ButtonPrompt(button: String, label: String, theme: HubTheme) {
+    val keyColor = when (button) {
+        "A" -> Color(0xFF4DF29A)
+        "B" -> Color(0xFFF3F1FF)
+        "X" -> Color(0xFF22D6FF)
+        "Y" -> Color(0xFFFFCE51)
+        "L1/R1" -> Color(0xFFCF9DFF)
+        else -> Color(0xFFEEE4FF)
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .height(26.dp)
-                .clip(RoundedCornerShape(13.dp))
-                .background(Color.White)
-                .padding(horizontal = 8.dp),
-            contentAlignment = Alignment.Center
+        Surface(
+            color = Color(0xE0101029),
+            shape = RoundedCornerShape(50),
+            border = BorderStroke(1.4.dp, keyColor.copy(alpha = .82f)),
+            modifier = Modifier.height(25.dp)
         ) {
-            Text(
-                text = button,
-                color = Color(0xFF101216),
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 12.sp
-            )
+            Box(
+                modifier = Modifier.fillMaxHeight().padding(horizontal = 9.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = button,
+                    color = keyColor,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 11.sp
+                )
+            }
         }
-        Text(text = label, color = Color(0xFFD1D5DB), fontSize = 14.sp)
+        Text(
+            text = label,
+            color = theme.textPrimary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium
+        )
     }
 }

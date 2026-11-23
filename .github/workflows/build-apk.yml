@@ -33,7 +33,9 @@ jobs:
           gradle-version: '8.9'
 
       - name: Build Debug APK
-        run: gradle assembleDebug --stacktrace -PappVersionCode=${APP_VERSION_CODE}
+        # Version code is offset above the TV UI preview builds (1,000,000 + run) so stable always
+        # installs over a preview; the visible version stays 1.0.<run>.
+        run: gradle assembleDebug --stacktrace -PappVersionCode=$((2000000 + APP_VERSION_CODE)) -PappVersionName=1.0.${APP_VERSION_CODE}
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
