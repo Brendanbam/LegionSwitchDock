@@ -1375,26 +1375,9 @@ private fun SteamControllerSection(accent: Color = Color(0xFF00E5FF)) {
                     val selected = pct == strength
                     OutlinedButton(
                         onClick = { prefs.steamHapticStrengthPct = pct; strength = pct },
-                        border = BorderStroke(1.dp, if (selected) Color(0xFF00E5FF) else Color(0xFF374151))
-                    ) { Text(label, color = if (selected) Color(0xFF00E5FF) else Color.White) }
-                }
-            }
-        }
-        var haptics by remember { mutableStateOf(prefs.steamTouchpadHaptics) }
-        ToggleRow(
-            title = "Touchpad haptics",
-            subtitle = "Feel a click when you press a pad, a bump when your finger lands, and light ticks as the pointer moves or the page scrolls.",
-            checked = haptics
-        ) { haptics = it; prefs.steamTouchpadHaptics = it }
-        if (haptics) {
-            var strength by remember { mutableStateOf(prefs.steamHapticStrengthPct) }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(50 to "Light", 100 to "Normal", 180 to "Strong").forEach { (pct, label) ->
-                    val selected = pct == strength
-                    OutlinedButton(
-                        onClick = { prefs.steamHapticStrengthPct = pct; strength = pct },
-                        border = BorderStroke(1.dp, if (selected) Color(0xFF00E5FF) else Color(0xFF374151))
-                    ) { Text(label, color = if (selected) Color(0xFF00E5FF) else Color.White) }
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(if (selected) 1.5.dp else 1.dp, if (selected) accent else Color(0xFF263042))
+                    ) { Text(label, color = if (selected) accent else Color(0xFFF3F5F8)) }
                 }
             }
         }
