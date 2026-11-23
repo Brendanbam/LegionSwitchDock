@@ -90,8 +90,9 @@ object SteamControllerDriver {
     private val opened = HashMap<String, PuckConnection>()
     private var receiverRegistered = false
 
-    // Any Valve device: the known puck/controller IDs, plus newer revisions with other product IDs
-    fun isSteamDevice(d: UsbDevice) = d.vendorId == VALVE
+    // Only the 2026 Steam Controller's puck and cable IDs. Other Valve hardware (the 2015 Steam
+    // Controller dongle, Steam Deck, Index) speaks a different protocol and must be left alone.
+    fun isSteamDevice(d: UsbDevice) = d.vendorId == VALVE && (d.productId == PUCK || d.productId == PUCK_2 || d.productId == WIRED)
 
     private fun isCabled(d: UsbDevice) = d.productId == WIRED || (d.productId != PUCK && d.productId != PUCK_2 && d.interfaceCount < 3)
 

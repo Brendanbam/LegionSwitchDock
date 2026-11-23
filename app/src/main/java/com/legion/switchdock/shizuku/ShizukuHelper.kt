@@ -162,7 +162,9 @@ class ShizukuShellService : IShellService.Stub() {
                 .redirectOutput(ProcessBuilder.Redirect.to(java.io.File("/dev/null")))
                 .redirectError(ProcessBuilder.Redirect.to(java.io.File("/dev/null")))
                 .start()
-            process.waitFor()
+            // Never let one stuck command block the queue (bypass-charging-off runs through it too)
+            if (process.waitFor(20, java.util.concurrent.TimeUnit.SECONDS)) process.exitValue()
+            else { process.destroyForcibly(); -2 }
         } catch (_: Exception) {
             -1
         }

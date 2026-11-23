@@ -42,6 +42,7 @@ class DockMonitorService : Service() {
     private var modeCheckStartedMs = 0L
     private var modePending = false
     private val lastModeSetMs = mutableMapOf<String, Long>()
+    private val last4096FixMs = mutableMapOf<String, Long>()
     private val modeCheckRunnable = object : Runnable {
         override fun run() {
             if (!modePending) return
@@ -111,7 +112,12 @@ class DockMonitorService : Service() {
 
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) {
-            mainHandler.postDelayed({ evaluateDisplays(autoLaunch = true) }, 450L)
+            // Only a newly plugged-in TV / glasses opens the hub. Other displays (screen recording,
+            // casting, an app's virtual display) must never pull the hub over a running game.
+            mainHandler.postDelayed({
+                val isExternal = ExternalDisplayHelper.findExternalDisplay(this@DockMonitorService)?.displayId == displayId
+                evaluateDisplays(autoLaunch = isExternal)
+            }, 450L)
         }
 
         override fun onDisplayChanged(displayId: Int) {
@@ -195,7 +201,13 @@ class DockMonitorService : Service() {
         resetSavedModesOnce()
         // Still showing cinema 4K on a TV: clear the saved mode for this screen so the 3840×2160 pick takes over
         ExternalDisplayHelper.findExternalDisplay(this)?.let { ext ->
-            if (ext.profile == com.legion.switchdock.display.DisplayProfile.TV && ext.width == 4096) {
+            // At most once a minute per screen: clearing the mode makes the display re-report, and
+            // repeated mode switches have crashed the tablet before.
+            val now = System.currentTimeMillis()
+            if (ext.profile == com.legion.switchdock.display.DisplayProfile.TV && ext.width == 4096 &&
+                now - (last4096FixMs[ext.name] ?: 0L) > 60_000L
+            ) {
+                last4096FixMs[ext.name] = now
                 ShizukuHelper.runCommand(this, "cmd display clear-user-preferred-display-mode ${ext.displayId}")
                 lastModeSetMs.remove(ext.name)
                 mainHandler.postDelayed({ ExternalDisplayHelper.findExternalDisplay(this)?.let { sendModeOnce(it) } }, 1500L)
@@ -224,6 +236,7 @@ class DockMonitorService : Service() {
             handleUndocked()
         } else {
             updateNotification("Ready • Plug in your TV dock or XR glasses")
+            restoreLeftoverDockSettings()
         }
     }
 
@@ -297,6 +310,17 @@ class DockMonitorService : Service() {
     private fun forceBypassOff() {
         if (ShizukuHelper.getStatus() == ShizukuStatus.READY) ShizukuHelper.setBypassCharging(this, enabled = false)
         prefs.bypassChargingEnabled = false
+    }
+
+    /**
+     * If the app was restarted while docked (e.g. an update), the undock clean-up never ran: put
+     * back the tablet's brightness and Wi-Fi/Bluetooth scan settings the dock had changed.
+     */
+    private fun restoreLeftoverDockSettings() {
+        if (ShizukuHelper.getStatus() != ShizukuStatus.READY) return
+        val store = getSharedPreferences("legion_restore_state", Context.MODE_PRIVATE)
+        if (store.contains("brightness")) ShizukuHelper.setInternalScreenBrightness(this, dimToZero = false)
+        if (store.contains("wifi_scan")) ArtemisBoostManager.setBoostActive(this, false)
     }
 
     private fun handleUndocked() {

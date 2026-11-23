@@ -277,7 +277,11 @@ private fun CompanionRoot(
         while (true) {
             // When the tablet screen is in Docked Blackout mode during gaming, skip heavy system
             // polling so zero CPU/binder overhead competes with Artemis game streaming!
-            if (forceDockedBlackout) {
+            // Also pause while this screen isn't visible: the dock service keeps the app alive in the
+            // background, and this loop would otherwise keep polling the system forever.
+            val visible = (context as? androidx.lifecycle.LifecycleOwner)?.lifecycle?.currentState
+                ?.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED) ?: true
+            if (forceDockedBlackout || !visible) {
                 delay(3000)
                 continue
             }

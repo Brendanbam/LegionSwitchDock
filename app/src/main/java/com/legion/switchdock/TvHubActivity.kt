@@ -82,6 +82,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -129,7 +130,10 @@ import com.legion.switchdock.shizuku.ShizukuHelper
 import com.legion.switchdock.shizuku.ShizukuStatus
 import com.legion.switchdock.streaming.ArtemisBoostManager
 import com.legion.switchdock.display.DisplayProfile
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -635,12 +639,22 @@ private fun SwitchTvHubScreen(
         )
     }
 
-    fun reloadApps() {
-        val loaded = AppRepository.loadLaunchableApps(context)
-        allApps = loaded
+    val appScope = rememberCoroutineScope()
+
+    /** Rebuilds the pinned row from the apps already loaded (instant: used after pin/move changes). */
+    fun refreshPins() {
         // "Play PC" leads the row whenever Artemis Legion is installed
         pinnedApps = listOfNotNull(AppRepository.playPcTile(context)) +
-            AppRepository.getOrSeedPinnedApps(context, loaded, prefs)
+            AppRepository.getOrSeedPinnedApps(context, allApps, prefs)
+    }
+
+    /** Full reload of every app and icon, off the main thread so the hub never freezes while it loads. */
+    fun reloadApps() {
+        appScope.launch {
+            val loaded = withContext(Dispatchers.IO) { AppRepository.loadLaunchableApps(context) }
+            allApps = loaded
+            refreshPins()
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -788,7 +802,7 @@ private fun SwitchTvHubScreen(
                             currentAll.getOrNull(selectedDrawerIndex)?.let { app ->
                                 SwitchAudioFeedback.playSelect(context)
                                 prefs.togglePinnedPackage(app.packageName)
-                                reloadApps()
+                                refreshPins()
                             }
                         }
                         ControllerCommand.B_BACK, ControllerCommand.Y_DRAWER -> {
@@ -844,7 +858,7 @@ private fun SwitchTvHubScreen(
                             if (currentFocusedPkg != null && !AppRepository.isVirtualTile(currentFocusedPkg)) {
                                 prefs.togglePinnedPackage(currentFocusedPkg)
                                 SwitchAudioFeedback.playSelect(context)
-                                reloadApps()
+                                refreshPins()
                             }
                         }
                         ControllerCommand.L1_PREV -> {
@@ -852,7 +866,7 @@ private fun SwitchTvHubScreen(
                                 prefs.movePinnedPackage(currentFocusedPkg, -1)) {
                                 selectedTileIndex = (currentSafeTileIdx - 1).coerceAtLeast(0)
                                 SwitchAudioFeedback.playMove(context)
-                                reloadApps()
+                                refreshPins()
                             }
                         }
                         ControllerCommand.R1_NEXT -> {
@@ -860,7 +874,7 @@ private fun SwitchTvHubScreen(
                                 prefs.movePinnedPackage(currentFocusedPkg, +1)) {
                                 selectedTileIndex = (currentSafeTileIdx + 1).coerceAtMost((currentPinned.size - 1).coerceAtLeast(0))
                                 SwitchAudioFeedback.playMove(context)
-                                reloadApps()
+                                refreshPins()
                             }
                         }
                         else -> {}
@@ -1673,7 +1687,7 @@ private fun SwitchTvHubScreen(
                     selectedDrawerIndex = idx
                     SwitchAudioFeedback.playSelect(context)
                     prefs.togglePinnedPackage(app.packageName)
-                    reloadApps()
+                    refreshPins()
                 },
                 onClose = {
                     SwitchAudioFeedback.playBack(context)

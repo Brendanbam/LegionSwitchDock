@@ -59,7 +59,7 @@ object ArtemisBoostManager {
                     "cmd activity set-standby-bucket $packageName active",
                     "appops set $packageName RUN_IN_BACKGROUND allow",
                     "appops set $packageName RUN_ANY_IN_BACKGROUND allow",
-                    "cmd power set-fixed-performance-mode-enabled true",
+                    fixedPerformanceCmd(context),
                     "settings put global wifi_scan_always_enabled 0",
                     "settings put global ble_scan_always_enabled 0",
                     "cmd wifi set-scan-always-available disabled"
@@ -68,6 +68,13 @@ object ArtemisBoostManager {
             }
         }
     }
+
+    /**
+     * Fixed performance mode locks the CPU/GPU clocks for steady decoding. Only on a charger: on
+     * battery (e.g. XR glasses running off the tablet) it drains the battery and heats the tablet.
+     */
+    private fun fixedPerformanceCmd(context: Context): String =
+        "cmd power set-fixed-performance-mode-enabled ${ShizukuHelper.isOnExternalPower(context)}"
 
     fun isStreamingPackage(packageName: String): Boolean {
         val lower = packageName.lowercase()
@@ -119,7 +126,7 @@ object ArtemisBoostManager {
                 "settings put global wifi_scan_always_enabled 0",
                 "settings put global ble_scan_always_enabled 0",
                 "cmd wifi set-scan-always-available disabled",
-                "cmd power set-fixed-performance-mode-enabled true"
+                fixedPerformanceCmd(context)
             )
             ShizukuHelper.runCommand(context, cmds.joinToString(" ; "))
         } else {
