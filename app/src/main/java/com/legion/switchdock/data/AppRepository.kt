@@ -21,7 +21,8 @@ data class AppEntry(
     val label: String,
     val icon: ImageBitmap,
     val isSystemApp: Boolean,
-    val banner: ImageBitmap? = null
+    val banner: ImageBitmap? = null,
+    val category: Int = ApplicationInfo.CATEGORY_UNDEFINED
 )
 
 object AppRepository {
@@ -40,7 +41,8 @@ object AppRepository {
             label = "Play PC",
             icon = drawableToImageBitmap(icon),
             isSystemApp = false,
-            banner = loadCustomBanner(context, PLAY_PC_ID)
+            banner = loadCustomBanner(context, PLAY_PC_ID),
+            category = ApplicationInfo.CATEGORY_GAME
         )
     }
 
@@ -111,12 +113,14 @@ object AppRepository {
                 val label = info.loadLabel(pm).toString().ifBlank { pkg }
                 val drawable = runCatching { info.loadIcon(pm) }.getOrNull() ?: return@mapNotNull null
                 val isSystem = (info.activityInfo.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                val appCategory = info.activityInfo.applicationInfo.category
                 AppEntry(
                     packageName = pkg,
                     label = label,
                     icon = drawableToImageBitmap(drawable),
                     isSystemApp = isSystem,
-                    banner = loadCustomBanner(context, pkg)
+                    banner = loadCustomBanner(context, pkg),
+                    category = appCategory
                 )
             }
             .sortedBy { it.label.lowercase() }
@@ -217,5 +221,75 @@ object AppRepository {
 
     fun clearCustomBanner(context: Context, packageName: String) {
         runCatching { bannerFile(context, packageName).delete() }
+    }
+
+    private val gamePackages = setOf(
+        ARTEMIS_LEGION_PACKAGE,
+        PLAY_PC_ID,
+        "com.limelight.noir",
+        "com.limelight",
+        "com.valvesoftware.steamlink",
+        "com.xiaoji.egggame",
+        "com.retroarch",
+        "com.retroarch.aarch64",
+        "org.dolphinemu.dolphinemu",
+        "org.ppsspp.ppsspp",
+        "org.ppsspp.ppssppgold",
+        "xyz.aethersx2.android",
+        "com.nvidia.geforcenow",
+        "com.microsoft.xcloud",
+        "com.xbox.cloudgaming",
+        "com.playstation.remoteplay",
+        "com.grill.chiaki"
+    )
+
+    private val gameKeywords = listOf(
+        "artemis", "moonlight", "apollo", "steam", "gamehub",
+        "retroarch", "dolphin", "ppsspp", "nethersx2", "aethersx2",
+        "yuzu", "sudachi", "citron", "cemu", "geforce", "xbox",
+        "chiaki", "emulator", "game", "arcade", "play pc"
+    )
+
+    private val mediaPackages = setOf(
+        "com.google.android.youtube",
+        "com.google.android.youtube.tv",
+        "com.google.android.apps.youtube.music",
+        "com.nuvio.app",
+        "com.netflix.mediaclient",
+        "com.crunchyroll.crunchyroid",
+        "com.plexapp.android",
+        "com.stremio.one",
+        "com.disney.disneyplus",
+        "com.hulu.plus",
+        "com.wbd.stream",
+        "com.amazon.avod.thirdpartyclient",
+        "org.videolan.vlc",
+        "com.spotify.music",
+        "org.jellyfin.mobile",
+        "org.xbmc.kodi",
+        "tv.twitch.android.app"
+    )
+
+    private val mediaKeywords = listOf(
+        "youtube", "netflix", "crunchyroll", "plex", "stremio",
+        "jellyfin", "disney", "hulu", "prime video", "vlc",
+        "mx player", "spotify", "twitch", "kodi", "nuvio",
+        "anikoto", "anime", "video", "music", "media", "tv", "cinema"
+    )
+
+    fun isGameApp(app: AppEntry): Boolean {
+        if (app.packageName in gamePackages) return true
+        if (app.category == ApplicationInfo.CATEGORY_GAME) return true
+        val lowerLabel = app.label.lowercase()
+        val lowerPkg = app.packageName.lowercase()
+        return gameKeywords.any { lowerLabel.contains(it) || lowerPkg.contains(it) }
+    }
+
+    fun isMediaApp(app: AppEntry): Boolean {
+        if (app.packageName in mediaPackages) return true
+        if (app.category == ApplicationInfo.CATEGORY_VIDEO || app.category == ApplicationInfo.CATEGORY_AUDIO) return true
+        val lowerLabel = app.label.lowercase()
+        val lowerPkg = app.packageName.lowercase()
+        return mediaKeywords.any { lowerLabel.contains(it) || lowerPkg.contains(it) }
     }
 }

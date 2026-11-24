@@ -32,8 +32,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -130,6 +130,14 @@ import com.legion.switchdock.shizuku.ShizukuHelper
 import com.legion.switchdock.shizuku.ShizukuStatus
 import com.legion.switchdock.streaming.ArtemisBoostManager
 import com.legion.switchdock.display.DisplayProfile
+import com.legion.switchdock.ui.HubFocusZone
+import com.legion.switchdock.ui.NatureGlassBottomHintBar
+import com.legion.switchdock.ui.NatureGlassColors
+import com.legion.switchdock.ui.NatureGlassFeaturedPanel
+import com.legion.switchdock.ui.NatureGlassGridCard
+import com.legion.switchdock.ui.NatureGlassTopBar
+import com.legion.switchdock.ui.NatureGridItem
+import com.legion.switchdock.ui.TopNavTab
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -614,12 +622,15 @@ private fun SwitchTvHubScreen(
     var activeTheme by remember { mutableStateOf(HubTheme.fromId(prefs.getThemeId(displayProfile))) }
 
     // Deterministic controller selection states (never lost when display focus shifts!)
-    var selectedTileIndex by remember { mutableIntStateOf(0) }
+    var activeTab by remember { mutableStateOf(TopNavTab.HOME) }
+    var focusZone by remember { mutableStateOf(HubFocusZone.APP_GRID) }
+    var focusedNavIndex by remember { mutableIntStateOf(0) }
+    var selectedGridIndex by remember { mutableIntStateOf(0) }
     var selectedDrawerIndex by remember { mutableIntStateOf(0) }
     var selectedMenuIndex by remember { mutableIntStateOf(0) }
     var menuStateTick by remember { mutableIntStateOf(0) }
 
-    val rowListState = rememberLazyListState()
+    val homeGridState = rememberLazyGridState()
     val drawerGridState = rememberLazyGridState()
 
     var currentTime by remember { mutableStateOf("") }
@@ -641,9 +652,9 @@ private fun SwitchTvHubScreen(
 
     val appScope = rememberCoroutineScope()
 
-    /** Rebuilds the pinned row from the apps already loaded (instant: used after pin/move changes). */
+    /** Rebuilds the pinned list from the apps already loaded (instant: used after pin/move changes). */
     fun refreshPins() {
-        // "Play PC" leads the row whenever Artemis Legion is installed
+        // "Play PC" leads the pinned apps whenever Artemis Legion is installed
         pinnedApps = listOfNotNull(AppRepository.playPcTile(context)) +
             AppRepository.getOrSeedPinnedApps(context, allApps, prefs)
     }
@@ -661,17 +672,82 @@ private fun SwitchTvHubScreen(
         reloadApps()
     }
 
-    val totalRowTiles = pinnedApps.size + 2 // pinnedApps + "All Apps & Pin" + "Quick Menu"
-    val safeTileIndex = selectedTileIndex.coerceIn(0, (totalRowTiles - 1).coerceAtLeast(0))
-    val focusedTitle = when {
-        safeTileIndex < pinnedApps.size -> pinnedApps[safeTileIndex].label
-        safeTileIndex == pinnedApps.size -> "All Apps & Pin Manager"
-        else -> "System Quick Menu"
+    val pinnedPackagesSet = remember(pinnedApps) {
+        pinnedApps.map { it.packageName }.toSet()
     }
-    val focusedPackage = pinnedApps.getOrNull(safeTileIndex)?.packageName
+
+    val gridItems: List<NatureGridItem> = remember(activeTab, pinnedApps, allApps) {
+        when (activeTab) {
+            TopNavTab.HOME -> {
+                pinnedApps.map { NatureGridItem.App(it) } + NatureGridItem.AllAppsTile
+            }
+            TopNavTab.APPS -> {
+                allApps.map { NatureGridItem.App(it) }
+            }
+            TopNavTab.GAMES -> {
+                val playPc = pinnedApps.firstOrNull { it.packageName == AppRepository.PLAY_PC_ID }
+                val games = (listOfNotNull(playPc) + allApps.filter { AppRepository.isGameApp(it) })
+                    .distinctBy { it.packageName }
+                games.map { NatureGridItem.App(it) }
+            }
+            TopNavTab.MEDIA -> {
+                allApps.filter { AppRepository.isMediaApp(it) }
+                    .map { NatureGridItem.App(it) }
+            }
+            TopNavTab.SETTINGS -> {
+                pinnedApps.map { NatureGridItem.App(it) } + NatureGridItem.AllAppsTile
+            }
+        }
+    }
+
+    val safeGridIndex = if (gridItems.isEmpty()) 0 else selectedGridIndex.coerceIn(0, gridItems.lastIndex)
+    val featuredItem: NatureGridItem? = gridItems.getOrNull(safeGridIndex)
+    val featuredApp: AppEntry? = (featuredItem as? NatureGridItem.App)?.entry
+    val featuredIsPinned = featuredApp != null && pinnedPackagesSet.contains(featuredApp.packageName)
+    val canToggleFeaturedPin = featuredApp != null && !AppRepository.isVirtualTile(featuredApp.packageName)
 
     val latestPinnedApps by rememberUpdatedState(pinnedApps)
     val latestAllApps by rememberUpdatedState(allApps)
+    val latestGridItems by rememberUpdatedState(gridItems)
+    val latestActiveTab by rememberUpdatedState(activeTab)
+    val latestFocusZone by rememberUpdatedState(focusZone)
+    val latestFocusedNavIndex by rememberUpdatedState(focusedNavIndex)
+
+    fun activateNavTab(tab: TopNavTab, focusGridAfter: Boolean) {
+        val tabIdx = TopNavTab.entries.indexOf(tab).coerceAtLeast(0)
+        focusedNavIndex = tabIdx
+        if (tab == TopNavTab.SETTINGS) {
+            selectedMenuIndex = 0
+            showQuickMenu = true
+            SwitchAudioFeedback.playMenu(context)
+        } else {
+            activeTab = tab
+            selectedGridIndex = 0
+            if (focusGridAfter) {
+                focusZone = HubFocusZone.APP_GRID
+            }
+            SwitchAudioFeedback.playSelect(context)
+        }
+    }
+
+    fun activateGridItem(item: NatureGridItem?) {
+        when (item) {
+            is NatureGridItem.App -> onLaunchApp(item.entry)
+            is NatureGridItem.AllAppsTile, null -> {
+                SwitchAudioFeedback.playMenu(context)
+                selectedDrawerIndex = 0
+                showAllAppsDrawer = true
+            }
+        }
+    }
+
+    fun togglePinForItem(item: NatureGridItem?) {
+        val app = (item as? NatureGridItem.App)?.entry ?: return
+        if (AppRepository.isVirtualTile(app.packageName)) return
+        prefs.togglePinnedPackage(app.packageName)
+        SwitchAudioFeedback.playSelect(context)
+        refreshPins()
+    }
 
     fun triggerSleepMode() {
         showQuickMenu = false
@@ -703,9 +779,13 @@ private fun SwitchTvHubScreen(
 
             val currentPinned = latestPinnedApps
             val currentAll = latestAllApps
-            val currentTotalTiles = currentPinned.size + 2
-            val currentSafeTileIdx = selectedTileIndex.coerceIn(0, (currentTotalTiles - 1).coerceAtLeast(0))
-            val currentFocusedPkg = currentPinned.getOrNull(currentSafeTileIdx)?.packageName
+            val currentItems = latestGridItems
+            val currentTab = latestActiveTab
+            val currentZone = latestFocusZone
+            val currentNavIdx = latestFocusedNavIndex
+            val currentSafeIdx = if (currentItems.isEmpty()) 0 else selectedGridIndex.coerceIn(0, currentItems.lastIndex)
+            val currentItem = currentItems.getOrNull(currentSafeIdx)
+            val currentFocusedPkg = (currentItem as? NatureGridItem.App)?.entry?.packageName
 
             when {
                 bluetooth.visible -> {
@@ -819,30 +899,37 @@ private fun SwitchTvHubScreen(
                     }
                 }
 
-                else -> {
+                currentZone == HubFocusZone.TOP_BAR -> {
+                    val tabCount = TopNavTab.entries.size
                     when (cmd) {
-                        ControllerCommand.LEFT, ControllerCommand.UP -> {
-                            selectedTileIndex = (currentSafeTileIdx - 1 + currentTotalTiles) % currentTotalTiles
+                        ControllerCommand.LEFT, ControllerCommand.L1_PREV -> {
+                            focusedNavIndex = (currentNavIdx - 1 + tabCount) % tabCount
                             SwitchAudioFeedback.playMove(context)
                         }
-                        ControllerCommand.RIGHT, ControllerCommand.DOWN -> {
-                            selectedTileIndex = (currentSafeTileIdx + 1) % currentTotalTiles
+                        ControllerCommand.RIGHT, ControllerCommand.R1_NEXT -> {
+                            focusedNavIndex = (currentNavIdx + 1) % tabCount
+                            SwitchAudioFeedback.playMove(context)
+                        }
+                        ControllerCommand.DOWN -> {
+                            val targetTab = TopNavTab.entries[currentNavIdx.coerceIn(0, tabCount - 1)]
+                            if (targetTab != TopNavTab.SETTINGS && targetTab != currentTab) {
+                                activeTab = targetTab
+                                selectedGridIndex = 0
+                            }
+                            focusZone = if (currentItems.isEmpty() && targetTab == currentTab) {
+                                HubFocusZone.FEATURED_OPEN
+                            } else {
+                                HubFocusZone.APP_GRID
+                            }
                             SwitchAudioFeedback.playMove(context)
                         }
                         ControllerCommand.A_CONFIRM -> {
-                            when {
-                                currentSafeTileIdx < currentPinned.size -> onLaunchApp(currentPinned[currentSafeTileIdx])
-                                currentSafeTileIdx == currentPinned.size -> {
-                                    SwitchAudioFeedback.playMenu(context)
-                                    selectedDrawerIndex = 0
-                                    showAllAppsDrawer = true
-                                }
-                                else -> {
-                                    SwitchAudioFeedback.playMenu(context)
-                                    selectedMenuIndex = 0
-                                    showQuickMenu = true
-                                }
-                            }
+                            val targetTab = TopNavTab.entries[currentNavIdx.coerceIn(0, tabCount - 1)]
+                            activateNavTab(targetTab, focusGridAfter = true)
+                        }
+                        ControllerCommand.B_BACK -> {
+                            focusZone = HubFocusZone.APP_GRID
+                            SwitchAudioFeedback.playBack(context)
                         }
                         ControllerCommand.Y_DRAWER -> {
                             SwitchAudioFeedback.playMenu(context)
@@ -854,38 +941,149 @@ private fun SwitchTvHubScreen(
                             selectedMenuIndex = 0
                             showQuickMenu = true
                         }
-                        ControllerCommand.X_ACTION -> {
-                            if (currentFocusedPkg != null && !AppRepository.isVirtualTile(currentFocusedPkg)) {
-                                prefs.togglePinnedPackage(currentFocusedPkg)
-                                SwitchAudioFeedback.playSelect(context)
-                                refreshPins()
+                        else -> {}
+                    }
+                }
+
+                currentZone == HubFocusZone.FEATURED_OPEN -> {
+                    when (cmd) {
+                        ControllerCommand.RIGHT -> {
+                            if (currentItems.isNotEmpty()) {
+                                focusZone = HubFocusZone.APP_GRID
+                                SwitchAudioFeedback.playMove(context)
                             }
                         }
+                        ControllerCommand.UP -> {
+                            focusedNavIndex = TopNavTab.entries.indexOf(currentTab).coerceAtLeast(0)
+                            focusZone = HubFocusZone.TOP_BAR
+                            SwitchAudioFeedback.playMove(context)
+                        }
+                        ControllerCommand.A_CONFIRM -> activateGridItem(currentItem)
+                        ControllerCommand.X_ACTION -> togglePinForItem(currentItem)
+                        ControllerCommand.Y_DRAWER -> {
+                            SwitchAudioFeedback.playMenu(context)
+                            selectedDrawerIndex = 0
+                            showAllAppsDrawer = true
+                        }
+                        ControllerCommand.B_BACK -> {
+                            if (currentItems.isNotEmpty()) {
+                                focusZone = HubFocusZone.APP_GRID
+                            } else if (currentTab != TopNavTab.HOME) {
+                                activeTab = TopNavTab.HOME
+                                selectedGridIndex = 0
+                                focusZone = HubFocusZone.APP_GRID
+                            }
+                            SwitchAudioFeedback.playBack(context)
+                        }
+                        ControllerCommand.START_MENU -> {
+                            SwitchAudioFeedback.playMenu(context)
+                            selectedMenuIndex = 0
+                            showQuickMenu = true
+                        }
+                        else -> {}
+                    }
+                }
+
+                else -> {
+                    // HubFocusZone.APP_GRID — uniform 2-column grid navigation
+                    val count = currentItems.size
+                    val col = currentSafeIdx % 2
+                    when (cmd) {
+                        ControllerCommand.LEFT -> {
+                            if (count == 0 || col == 0) {
+                                focusZone = HubFocusZone.FEATURED_OPEN
+                                SwitchAudioFeedback.playMove(context)
+                            } else {
+                                selectedGridIndex = currentSafeIdx - 1
+                                SwitchAudioFeedback.playMove(context)
+                            }
+                        }
+                        ControllerCommand.RIGHT -> {
+                            if (col == 0 && currentSafeIdx + 1 < count) {
+                                selectedGridIndex = currentSafeIdx + 1
+                                SwitchAudioFeedback.playMove(context)
+                            }
+                        }
+                        ControllerCommand.UP -> {
+                            if (count == 0 || currentSafeIdx < 2) {
+                                focusedNavIndex = TopNavTab.entries.indexOf(currentTab).coerceAtLeast(0)
+                                focusZone = HubFocusZone.TOP_BAR
+                                SwitchAudioFeedback.playMove(context)
+                            } else {
+                                selectedGridIndex = currentSafeIdx - 2
+                                SwitchAudioFeedback.playMove(context)
+                            }
+                        }
+                        ControllerCommand.DOWN -> {
+                            when {
+                                currentSafeIdx + 2 < count -> {
+                                    selectedGridIndex = currentSafeIdx + 2
+                                    SwitchAudioFeedback.playMove(context)
+                                }
+                                col == 1 && currentSafeIdx + 1 < count -> {
+                                    selectedGridIndex = count - 1
+                                    SwitchAudioFeedback.playMove(context)
+                                }
+                            }
+                        }
+                        ControllerCommand.A_CONFIRM -> activateGridItem(currentItem)
+                        ControllerCommand.X_ACTION -> togglePinForItem(currentItem)
+                        ControllerCommand.Y_DRAWER -> {
+                            SwitchAudioFeedback.playMenu(context)
+                            selectedDrawerIndex = 0
+                            showAllAppsDrawer = true
+                        }
+                        ControllerCommand.B_BACK -> {
+                            if (currentTab != TopNavTab.HOME) {
+                                activeTab = TopNavTab.HOME
+                                focusedNavIndex = 0
+                                selectedGridIndex = 0
+                                SwitchAudioFeedback.playBack(context)
+                            }
+                        }
+                        ControllerCommand.START_MENU -> {
+                            SwitchAudioFeedback.playMenu(context)
+                            selectedMenuIndex = 0
+                            showQuickMenu = true
+                        }
                         ControllerCommand.L1_PREV -> {
-                            if (currentFocusedPkg != null && !AppRepository.isVirtualTile(currentFocusedPkg) &&
-                                prefs.movePinnedPackage(currentFocusedPkg, -1)) {
-                                selectedTileIndex = (currentSafeTileIdx - 1).coerceAtLeast(0)
+                            if (currentTab == TopNavTab.HOME && currentFocusedPkg != null &&
+                                !AppRepository.isVirtualTile(currentFocusedPkg) &&
+                                prefs.movePinnedPackage(currentFocusedPkg, -1)
+                            ) {
+                                selectedGridIndex = (currentSafeIdx - 1).coerceAtLeast(0)
                                 SwitchAudioFeedback.playMove(context)
                                 refreshPins()
+                            } else {
+                                val browseTabs = listOf(TopNavTab.HOME, TopNavTab.APPS, TopNavTab.GAMES, TopNavTab.MEDIA)
+                                val nextTab = browseTabs[(browseTabs.indexOf(currentTab).coerceAtLeast(0) - 1 + browseTabs.size) % browseTabs.size]
+                                activateNavTab(nextTab, focusGridAfter = true)
                             }
                         }
                         ControllerCommand.R1_NEXT -> {
-                            if (currentFocusedPkg != null && !AppRepository.isVirtualTile(currentFocusedPkg) &&
-                                prefs.movePinnedPackage(currentFocusedPkg, +1)) {
-                                selectedTileIndex = (currentSafeTileIdx + 1).coerceAtMost((currentPinned.size - 1).coerceAtLeast(0))
+                            if (currentTab == TopNavTab.HOME && currentFocusedPkg != null &&
+                                !AppRepository.isVirtualTile(currentFocusedPkg) &&
+                                prefs.movePinnedPackage(currentFocusedPkg, +1)
+                            ) {
+                                selectedGridIndex = (currentSafeIdx + 1).coerceAtMost((currentPinned.size - 1).coerceAtLeast(0))
                                 SwitchAudioFeedback.playMove(context)
                                 refreshPins()
+                            } else {
+                                val browseTabs = listOf(TopNavTab.HOME, TopNavTab.APPS, TopNavTab.GAMES, TopNavTab.MEDIA)
+                                val nextTab = browseTabs[(browseTabs.indexOf(currentTab).coerceAtLeast(0) + 1) % browseTabs.size]
+                                activateNavTab(nextTab, focusGridAfter = true)
                             }
                         }
-                        else -> {}
                     }
                 }
             }
         }
     }
 
-    LaunchedEffect(safeTileIndex) {
-        runCatching { rowListState.animateScrollToItem(safeTileIndex) }
+    LaunchedEffect(safeGridIndex, activeTab) {
+        if (gridItems.isNotEmpty()) {
+            runCatching { homeGridState.animateScrollToItem(safeGridIndex) }
+        }
     }
 
     LaunchedEffect(selectedDrawerIndex, showAllAppsDrawer) {
@@ -936,7 +1134,7 @@ private fun SwitchTvHubScreen(
             if (liveProfile != displayProfile) {
                 // Switched between TV and glasses: swap to that menu's pins and theme
                 displayProfile = liveProfile
-                selectedTileIndex = 0
+                selectedGridIndex = 0
                 reloadApps()
             }
             activeTheme = HubTheme.fromId(prefs.getThemeId(liveProfile))
@@ -951,1147 +1149,370 @@ private fun SwitchTvHubScreen(
         }
     }
 
-    // Android external displays may expose 1920–3840 logical dp. Without a
-    // TV-specific density, 12–54sp labels and 158dp cards become tiny at 4K.
-    // Normalize the hub to an approximately 1280x720 design canvas in TV
-    // mode. XR retains its native density and transparent black behavior.
+    // Normalize the TV layout to an approximately 1280x720 design canvas so 4K TVs,
+    // 1080p TVs, and the Lenovo Legion Y700 tablet all preserve crisp, balanced proportions.
+    // XR glasses retain native density and pure black transparency.
     val displayConfiguration = LocalConfiguration.current
     val platformDensity = LocalDensity.current
     val tvScale = if (isGlasses) 1f else minOf(
         displayConfiguration.screenWidthDp / 1280f,
         displayConfiguration.screenHeightDp / 720f
-    ).coerceIn(1f, 3f)
+    ).coerceIn(0.62f, 3.0f)
     val hubDensity = Density(platformDensity.density * tvScale, platformDensity.fontScale)
+    val modalTheme = remember(isGlasses, activeTheme) {
+        if (isGlasses) activeTheme
+        else if (activeTheme == HubTheme.SWITCH_DARK) HubTheme.EMERALD_PULSE
+        else activeTheme
+    }
+
     CompositionLocalProvider(LocalDensity provides hubDensity) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(activeTheme.bgTop, activeTheme.bgMid, activeTheme.bgBottom)
-                )
-            )
-    ) {
-        // Original bundled panoramic artwork: matches the approved reference and
-        // doesn't require an internet connection. XR stays truly black.
-        if (!isGlasses) {
-            Image(
-                painter = painterResource(R.drawable.orbit_cosmos_bg),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-            Box(
-                modifier = Modifier.fillMaxSize().background(
-                    Brush.horizontalGradient(
-                        listOf(
-                            Color(0xD9070619),
-                            Color(0x82070518),
-                            Color(0x1208051D),
-                            Color(0x08080613)
-                        )
-                    )
-                )
-            )
-            Box(
-                modifier = Modifier.fillMaxSize().background(
-                    Brush.verticalGradient(
-                        listOf(Color(0x53040616),Color.Transparent,Color(0x8B060819))
-                    )
-                )
-            )
-        }
-
-        val configuration = LocalConfiguration.current
-        // Glasses: the edge margin, or the smaller screen size if that leaves more room around the hub
-        val glassesMarginFraction = if (isGlasses) {
-            maxOf(prefs.glassesEdgeMarginPct / 100f, (100 - screenSizeTick.let { prefs.glassesScreenSizePct }) / 200f)
-        } else 0f
-        val outerPadH = (if (isGlasses) 44.dp else 32.dp) + (configuration.screenWidthDp * glassesMarginFraction).dp
-        val outerPadV = (if (isGlasses) 28.dp else 16.dp) + (configuration.screenHeightDp * glassesMarginFraction).dp
-        // Fit the featured artwork and up to six launch tiles on the actual display,
-        // rather than assuming TV density / usable width is identical to a tablet.
-        // Size of the scaled layout canvas (≈1280×720 on a 4K TV), for all size decisions below
-        val canvasWidthDp = configuration.screenWidthDp / tvScale
-        val canvasHeightDp = configuration.screenHeightDp / tvScale
-        val compactHome = !isGlasses && canvasHeightDp < 610f
-        val visibleDockTiles = (pinnedApps.size + 2).coerceIn(2, 6)
-        val availableDockDp = configuration.screenWidthDp.toFloat() / tvScale - outerPadH.value * 2f
-        val dockCardWidth = if (isGlasses) 158.dp else
-            ((availableDockDp - 44f - (visibleDockTiles - 1) * 12f) / visibleDockTiles)
-                .coerceIn(90f, 174f).dp
-        val dockCardHeight = if (compactHome) 92.dp else 114.dp
-
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = outerPadH, vertical = outerPadV),
-            verticalArrangement = Arrangement.SpaceBetween
+                .background(
+                    if (isGlasses) Color.Black
+                    else NatureGlassColors.ForestDark
+                )
         ) {
-            // Top Console Telemetry Pill Bar
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Surface(
-                        color = activeTheme.accent.copy(alpha = 0.14f),
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, activeTheme.accent.copy(alpha = 0.45f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                if (isGlasses) Icons.Rounded.ViewInAr else Icons.Rounded.Tv,
-                                contentDescription = null,
-                                tint = activeTheme.accent,
-                                modifier = Modifier.size(16.dp)
+            // Full-bleed offline Nature Glass forest, mountain, aurora & waterfall landscape.
+            // XR glasses stay pure black for optical transparency.
+            if (!isGlasses) {
+                Image(
+                    painter = painterResource(R.drawable.nature_glass_bg),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+                // Gentle top contrast vignette so top-bar nav and status stay razor sharp
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(106.dp)
+                        .align(Alignment.TopCenter)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color(0xA603120C), Color(0x4703120C), Color.Transparent)
                             )
-                            Text(
-                                text = if (isGlasses) "LEGION XR" else "LEGION SWITCH DOCK",
-                                color = activeTheme.textPrimary,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp,
-                                letterSpacing = 1.4.sp
-                            )
-                        }
-                    }
-
-                    Surface(
-                        color = activeTheme.surfaceGlass,
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, activeTheme.borderSubtle)
-                    ) {
-                        Text(
-                            text = if (isGlasses) displaySummary else "ORBIT HOME  ·  $displaySummary",
-                            color = activeTheme.textSecondary,
-                            fontSize = 12.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                         )
-                    }
-
-                    val lowPad = health.controllers.firstOrNull { (it.batteryPercent ?: 100) <= 20 }
-                    if (lowPad != null) {
-                        Surface(
-                            color = Color(0xFFEF4444).copy(alpha = 0.16f),
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.65f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    Icons.Rounded.Gamepad,
-                                    contentDescription = "Low Controller Battery",
-                                    tint = Color(0xFFF87171),
-                                    modifier = Modifier.size(15.dp)
-                                )
-                                Text(
-                                    text = "Pad Low (${lowPad.batteryPercent}%)",
-                                    color = Color(0xFFFCA5A5),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-                    }
-
-                    if (isGlasses && prefs.glassesBatteryWarning && !health.isCharging && health.batteryPercent <= 20) {
-                        Surface(
-                            color = Color(0xFFEF4444).copy(alpha = 0.16f),
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.65f))
-                        ) {
-                            Text(
-                                text = "Tablet ${health.batteryPercent}% • Glasses powered by tablet",
-                                color = Color(0xFFFCA5A5),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                )
+                // Gentle bottom contrast vignette behind controller hint dock
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(82.dp)
+                        .align(Alignment.BottomCenter)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Transparent, Color(0x6E020E09))
                             )
-                        }
-                    }
-
-                    if (health.isThermalWarning && prefs.thermalWarningEnabled) {
-                        Surface(
-                            color = Color(0xFFF59E0B).copy(alpha = 0.16f),
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.65f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    Icons.Rounded.Thermostat,
-                                    contentDescription = "High Temp",
-                                    tint = Color(0xFFF59E0B),
-                                    modifier = Modifier.size(15.dp)
-                                )
-                                Text(
-                                    text = "${String.format(Locale.US, "%.1f", health.temperatureC)}°C • Bypass Recommended",
-                                    color = Color(0xFFFBBF24),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Right Cluster: Unified Glass HUD Pill
-                Surface(
-                    color = activeTheme.surfaceGlass,
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, activeTheme.borderSubtle)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        if (health.controllers.isNotEmpty()) {
-                            val firstCtrl = health.controllers.first()
-                            val ctrlLabel = buildString {
-                                if (health.controllers.size > 1) {
-                                    append("${health.controllers.size} Pads")
-                                } else {
-                                    append("Pad")
-                                }
-                                if (firstCtrl.batteryPercent != null) {
-                                    append(" ${firstCtrl.batteryPercent}%")
-                                }
-                            }
-                            val padPct = firstCtrl.batteryPercent
-                            val padTint = when {
-                                padPct != null && padPct <= 20 -> Color(0xFFF87171)
-                                padPct != null && padPct <= 40 -> Color(0xFFFBBF24)
-                                else -> Color(0xFF4ADE80)
-                            }
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(padTint)
-                                )
-                                Icon(
-                                    Icons.Rounded.Gamepad,
-                                    contentDescription = "Controller Connected",
-                                    tint = padTint,
-                                    modifier = Modifier.size(17.dp)
-                                )
-                                Text(
-                                    text = ctrlLabel,
-                                    color = padTint,
-                                    fontSize = 12.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                            Box(
-                                Modifier
-                                    .width(1.dp)
-                                    .height(14.dp)
-                                    .background(activeTheme.borderSubtle)
-                            )
-                        }
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                if (networkType == "Ethernet") Icons.Rounded.Lan else Icons.Rounded.Wifi,
-                                contentDescription = networkType,
-                                tint = if (networkType == "Offline") Color(0xFFF87171) else activeTheme.textSecondary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = networkType,
-                                color = if (networkType == "Offline") Color(0xFFF87171) else activeTheme.textSecondary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-
-                        Box(
-                            Modifier
-                                .width(1.dp)
-                                .height(14.dp)
-                                .background(activeTheme.borderSubtle)
                         )
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp)
-                        ) {
-                            Icon(
-                                if (health.isCharging) Icons.Rounded.BatteryChargingFull else Icons.Rounded.BatteryFull,
-                                contentDescription = "Battery",
-                                tint = if (health.isCharging) Color(0xFF4ADE80) else activeTheme.textPrimary,
-                                modifier = Modifier.size(17.dp)
-                            )
-                            Text(
-                                text = "${health.batteryPercent}% · ${String.format(Locale.US, "%.0f", health.temperatureC)}°C",
-                                color = activeTheme.textPrimary,
-                                fontSize = 12.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-
-                        Box(
-                            Modifier
-                                .width(1.dp)
-                                .height(14.dp)
-                                .background(activeTheme.borderSubtle)
-                        )
-
-                        Text(
-                            text = currentTime,
-                            color = activeTheme.textPrimary,
-                            fontSize = 14.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
+                )
             }
 
-            // ORBIT HOME: visual-first command deck with controller-owned selection.
-            // No extra focus layer: existing controller indices still drive the whole screen.
+            val configuration = LocalConfiguration.current
+            val glassesMarginFraction = if (isGlasses) {
+                maxOf(
+                    prefs.glassesEdgeMarginPct / 100f,
+                    (100 - screenSizeTick.let { prefs.glassesScreenSizePct }) / 200f
+                )
+            } else 0f
+            val outerPadH = (if (isGlasses) 40.dp else 26.dp) + (configuration.screenWidthDp * glassesMarginFraction).dp
+            val outerPadTop = (if (isGlasses) 24.dp else 14.dp) + (configuration.screenHeightDp * glassesMarginFraction).dp
+            val outerPadBottom = if (isGlasses) (20.dp + (configuration.screenHeightDp * glassesMarginFraction).dp) else 0.dp
+
             Column(
-                modifier = Modifier.fillMaxWidth().weight(1f).padding(top = if (compactHome) 5.dp else 12.dp, bottom = 6.dp),
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-                val heroApp = pinnedApps.getOrNull(safeTileIndex)
-                val isPc = focusedPackage == AppRepository.PLAY_PC_ID
-                val isArtemis = focusedPackage == AppRepository.ARTEMIS_LEGION_PACKAGE ||
-                    (heroApp?.label?.contains("Artemis", ignoreCase = true) == true)
-                val isStream = isPc || (focusedPackage != null && ArtemisBoostManager.isStreamingPackage(focusedPackage))
-                val eyebrowText = when {
-                    isPc -> "DIRECT LINK  /  ARTEMIS LEGION"
-                    isArtemis -> "STREAMING MODE  /  ARTEMIS LEGION"
-                    isStream -> "STREAMING  /  LOW LATENCY"
-                    heroApp != null -> "LIBRARY  /  FAVORITE ${safeTileIndex + 1}"
-                    safeTileIndex == pinnedApps.size -> "EXPLORE  /  INSTALLED APPS"
-                    else -> "SYSTEM  /  CONTROL CENTER"
-                }
-                val subtitleText = when {
-                    isPc -> "Your PC is one press away. Pick up exactly where you left off."
-                    isArtemis -> "Stream Artemis Legion to your TV. Your games, worlds and content on the big screen."
-                    isStream -> "Launch your stream on the big screen with optimized connectivity."
-                    heroApp != null -> "Your next session starts here. Press A to launch on the TV."
-                    safeTileIndex == pinnedApps.size -> "Browse ${allApps.size} installed apps and choose what stays in your dock."
-                    else -> "Audio, controller pairing, power and display options."
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 6.dp, vertical = if (compactHome) 4.dp else 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(18.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Title and action sit directly on the ambient canvas, not inside a card.
-                    Column(
-                        modifier = Modifier.weight(1.25f),
-                        verticalArrangement = Arrangement.spacedBy(if (canvasHeightDp < 550f) 7.dp else 11.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                            Box(Modifier.size(7.dp).clip(CircleShape).background(activeTheme.accent))
-                            Text(
-                                text = eyebrowText,
-                                color = activeTheme.accent,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                letterSpacing = 2.sp
-                            )
-                        }
-                        Crossfade(targetState = if (isArtemis) "Artemis Legion" else focusedTitle, animationSpec = tween(250), label = "orbitHeroTitle") { title ->
-                            Text(
-                                text = title,
-                                color = activeTheme.textPrimary,
-                                fontSize = if (canvasWidthDp < 850f) 37.sp else 54.sp,
-                                lineHeight = if (canvasWidthDp < 850f) 42.sp else 57.sp,
-                                letterSpacing = (-1.8).sp,
-                                fontWeight = FontWeight.Black,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Text(
-                            text = subtitleText,
-                            color = activeTheme.textSecondary,
-                            fontSize = 15.sp,
-                            lineHeight = 21.sp,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .shadow(
-                                        elevation = 16.dp,
-                                        shape = RoundedCornerShape(50),
-                                        ambientColor = Color(0xFFB645FF),
-                                        spotColor = Color(0xFF10DFFF)
-                                    )
-                                    .clip(RoundedCornerShape(50))
-                                    .background(Brush.horizontalGradient(
-                                        listOf(Color(0xFFB742F4),Color(0xFF7440D4),Color(0xFF00CFFF))
-                                    ))
-                                    .border(2.dp, Color(0xFFF5E5FF), RoundedCornerShape(50))
-                                    .clickable {
-                                        val app = pinnedApps.getOrNull(safeTileIndex)
-                                        if (app != null) onLaunchApp(app)
-                                        else if (safeTileIndex == pinnedApps.size) {
-                                            selectedDrawerIndex = 0
-                                            showAllAppsDrawer = true
-                                        } else {
-                                            selectedMenuIndex = 0
-                                            showQuickMenu = true
-                                        }
-                                    }
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 11.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier.size(28.dp)
-                                            .clip(CircleShape).background(Color.White),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text("A",color = Color(0xFF34205B),fontSize = 16.sp,fontWeight = FontWeight.Black)
-                                    }
-                                    Text(
-                                        text = if (heroApp != null) "PLAY NOW" else "OPEN",
-                                        color = Color.White,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        letterSpacing = 1.sp
-                                    )
-                                }
-                            }
-                            Text(
-                                text = if (isStream) (if (prefs.artemisWifiBoostEnabled) "● LOW LATENCY ON" else "● STREAM READY") else "● TV READY",
-                                color = activeTheme.textSecondary,
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                    }
-                    // Giant neon-framed showcase, matching the concept rather than a floating app icon.
-                    Box(
-                        modifier = Modifier
-                            .weight(if (compactHome) 1.20f else 1.08f)
-                            // 16:9 showcase on both tablet and TV. The previous
-                            // fillMaxHeight stretched it into a giant portrait slab
-                            // on 4K displays and cropped the cinematic artwork.
-                            .aspectRatio(16f / 9f)
-                            .shadow(
-                                elevation = 18.dp,
-                                shape = RoundedCornerShape(24.dp),
-                                ambientColor = Color(0xFFAC39FF),
-                                spotColor = Color(0xFF05CBFF)
-                            )
-                            .clip(RoundedCornerShape(24.dp))
-                            .background(Color(0xFF080D2A))
-                            .border(
-                                width = 2.5.dp,
-                                brush = Brush.linearGradient(
-                                    listOf(Color(0xFFE879FF),Color(0xFF9F59F3),Color(0xFF10E2FC))
-                                ),
-                                shape = RoundedCornerShape(24.dp)
-                            )
-                    ) {
-                        Crossfade(
-                            targetState = safeTileIndex,
-                            animationSpec = tween(340),
-                            label = "featuredArtworkFade"
-                        ) { index ->
-                            val app = pinnedApps.getOrNull(index)
-                            val showCinematicPoster = !isGlasses && (
-                                app?.packageName == AppRepository.ARTEMIS_LEGION_PACKAGE ||
-                                app?.packageName == AppRepository.PLAY_PC_ID ||
-                                app?.label?.contains("Artemis", ignoreCase = true) == true
-                            )
-                            Box(Modifier.fillMaxSize()) {
-                                if (showCinematicPoster) {
-                                    Image(
-                                        painter = painterResource(R.drawable.orbit_artemis_poster),
-                                        contentDescription = "Original futuristic city showcase illustration",
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                } else if (app?.banner != null) {
-                                    Image(
-                                        bitmap = app.banner,
-                                        contentDescription = app.label,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                } else if (!isGlasses) {
-                                    CosmicCityArtwork(
-                                        theme = activeTheme,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                } else {
-                                    Box(Modifier.fillMaxSize().background(activeTheme.surfaceElevated))
-                                }
-                                // The new detailed poster is artwork only; use real Compose
-                                // text to keep its title crisp on TV and small displays.
-                                if (showCinematicPoster) {
-                                    Box(
-                                        Modifier.fillMaxSize().background(
-                                            Brush.verticalGradient(
-                                                listOf(Color.Transparent, Color.Transparent, Color(0xDB06091F))
-                                            )
-                                        )
-                                    )
-                                    Column(
-                                        modifier = Modifier.align(Alignment.BottomStart)
-                                            .padding(start = 22.dp, bottom = 16.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Text(
-                                            if (app?.packageName == AppRepository.PLAY_PC_ID) "PLAY PC" else "ARTEMIS LEGION",
-                                            color = Color.White,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 26.sp,
-                                            letterSpacing = 1.1.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Text(
-                                            "READY TO PLAY",
-                                            color = Color(0xFFD7C0F3),
-                                            fontFamily = FontFamily.Monospace,
-                                            fontSize = 11.sp,
-                                            letterSpacing = 1.2.sp
-                                        )
-                                    }
-                                } else {
-                                Box(
-                                    Modifier.fillMaxSize().background(
-                                        Brush.verticalGradient(
-                                            listOf(Color(0x32080927), Color.Transparent, Color(0xE6080920))
-                                        )
-                                    )
-                                )
-                                Row(
-                                    modifier = Modifier.align(Alignment.TopStart)
-                                        .padding(18.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(9.dp)
-                                ) {
-                                    if (app != null) {
-                                        Image(
-                                            bitmap = app.icon,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(34.dp).clip(RoundedCornerShape(9.dp))
-                                        )
-                                    } else {
-                                        Icon(
-                                            if (index == pinnedApps.size) Icons.Rounded.Apps else Icons.Rounded.Settings,
-                                            contentDescription = null,
-                                            tint = Color.White,
-                                            modifier = Modifier.size(30.dp)
-                                        )
-                                    }
-                                    Text(
-                                        text = "LEGION  /  FEATURED",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        letterSpacing = 1.4.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                Column(
-                                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 22.dp, bottom = 18.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Text(
-                                        text = (app?.label ?: if (index == pinnedApps.size) "YOUR LIBRARY" else "QUICK MENU").uppercase(),
-                                        color = Color.White,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 26.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = if (app != null) "READY TO PLAY" else "EXPLORE & CUSTOMIZE",
-                                        color = Color(0xFFC8B4EA),
-                                        fontSize = 11.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        letterSpacing = 1.2.sp
-                                    )
-                                }
-                                }
-                            }
-                        }
-                    }
-                }
-                // Floating carousel – the only interactive selection rail on the TV home.
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(if (compactHome) 5.dp else 8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Box(Modifier.size(5.dp).clip(CircleShape).background(activeTheme.accent))
-                            Text(
-                                "YOUR COLLECTION",
-                                color = activeTheme.textPrimary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                letterSpacing = 1.8.sp
-                            )
-                        }
-                        Text(
-                            "${pinnedApps.size} PINNED  ·  L1/R1 REORDER",
-                            color = activeTheme.textSecondary,
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = Color(0xCC0D1034),
-                        border = BorderStroke(1.5.dp, Brush.horizontalGradient(listOf(Color(0xFFA750FF), Color(0xFF5A4D96), Color(0xFF13D9FF))))
-                    ) {
-                        LazyRow(
-                            state = rowListState,
-                            modifier = Modifier.fillMaxWidth(),
-                            contentPadding = PaddingValues(horizontal = 22.dp, vertical = if (compactHome) 10.dp else 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            itemsIndexed(pinnedApps, key = { _, app -> app.packageName }) { index, app ->
-                                SwitchAppTile(
-                                    app = app,
-                                    isSelected = safeTileIndex == index,
-                                    theme = activeTheme,
-                                    onClick = {
-                                        selectedTileIndex = index
-                                        onLaunchApp(app)
-                                    },
-                                    tileWidth = dockCardWidth,
-                                    tileHeight = dockCardHeight
-                                )
-                            }
-                            item(key = "add_more_apps_tile") {
-                                val idx = pinnedApps.size
-                                ActionTile(
-                                    title = "All Apps",
-                                    icon = Icons.Rounded.Add,
-                                    theme = activeTheme,
-                                    isSelected = safeTileIndex == idx,
-                                    onClick = {
-                                        selectedTileIndex = idx
-                                        selectedDrawerIndex = 0
-                                        showAllAppsDrawer = true
-                                    },
-                                    tileWidth = dockCardWidth,
-                                    tileHeight = dockCardHeight
-                                )
-                            }
-                            item(key = "quick_menu_tile") {
-                                val idx = pinnedApps.size + 1
-                                ActionTile(
-                                    title = "Quick Menu",
-                                    icon = Icons.Rounded.Settings,
-                                    theme = activeTheme,
-                                    isSelected = safeTileIndex == idx,
-                                    onClick = {
-                                        selectedTileIndex = idx
-                                        selectedMenuIndex = 0
-                                        showQuickMenu = true
-                                    },
-                                    tileWidth = dockCardWidth,
-                                    tileHeight = dockCardHeight
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Bottom Console Controller Legend
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(if (compactHome) 8.dp else 14.dp)) {
-                    ButtonPrompt("A", "Launch", activeTheme)
-                    ButtonPrompt("B", "Back", activeTheme)
-                    ButtonPrompt("Y", "Library", activeTheme)
-                    ButtonPrompt("X", "Pin / Unpin", activeTheme)
-                    if (!compactHome) ButtonPrompt("L1/R1", "Reorder", activeTheme)
-                    ButtonPrompt("Start", if (compactHome) "Menu" else "Quick Menu", activeTheme)
-                }
-
-                Surface(
-                    color = activeTheme.surfaceGlass,
-                    shape = RoundedCornerShape(8.dp),
-                    border = BorderStroke(1.dp, activeTheme.borderSubtle),
-                    modifier = Modifier.clickable { onExitHub() }
-                ) {
-                    Text(
-                        text = "Exit Hub",
-                        color = activeTheme.textSecondary,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                    )
-                }
-            }
-        }
-
-        // All Apps & Pin Manager Overlay
-        if (showAllAppsDrawer) {
-            AllAppsDrawerOverlay(
-                allApps = allApps,
-                pinnedPackages = pinnedApps.map { it.packageName }.toSet(),
-                selectedIndex = selectedDrawerIndex.coerceIn(0, (allApps.size - 1).coerceAtLeast(0)),
-                gridState = drawerGridState,
-                activeTheme = activeTheme,
-                onLaunchApp = { idx, app ->
-                    selectedDrawerIndex = idx
-                    showAllAppsDrawer = false
-                    onLaunchApp(app)
-                },
-                onTogglePin = { idx, app ->
-                    selectedDrawerIndex = idx
-                    SwitchAudioFeedback.playSelect(context)
-                    prefs.togglePinnedPackage(app.packageName)
-                    refreshPins()
-                },
-                onClose = {
-                    SwitchAudioFeedback.playBack(context)
-                    showAllAppsDrawer = false
-                }
-            )
-        }
-
-        // In-Hub Switch Quick Menu Overlay
-        if (showQuickMenu) {
-            InHubQuickMenuOverlay(
-                health = health,
-                prefs = prefs,
-                activeTheme = activeTheme,
-                selectedIndex = selectedMenuIndex,
-                stateTick = menuStateTick,
-                onSelectIndex = { selectedMenuIndex = it },
-                onCycleTheme = {
-                    val nextTheme = activeTheme.next()
-                    activeTheme = nextTheme
-                    prefs.setThemeId(displayProfile, nextTheme.id)
-                },
-                onTriggerScreensaver = {
-                    showQuickMenu = false
-                    isIdleDimmed = true
-                },
-                onTriggerSleepMode = {
-                    triggerSleepMode()
-                },
-                onOpenBluetooth = {
-                    showQuickMenu = false
-                    bluetooth.open()
-                },
-                onClose = {
-                    SwitchAudioFeedback.playBack(context)
-                    showQuickMenu = false
-                }
-            )
-        }
-
-        // In-hub Bluetooth devices screen
-        if (bluetooth.visible) {
-            BluetoothPanel(bluetooth, activeTheme)
-        }
-
-        // 5-Minute Idle Dimmer / Screensaver Clock
-        AnimatedVisibility(
-            visible = isIdleDimmed,
-            enter = fadeIn(tween(600)),
-            exit = fadeOut(tween(250))
-        ) {
-            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.92f))
-                    .clickable {
-                        lastInteractionMs = System.currentTimeMillis()
-                        isIdleDimmed = false
-                        SwitchAudioFeedback.playMenu(context)
-                    },
-                contentAlignment = Alignment.Center
+                    .padding(top = outerPadTop, bottom = outerPadBottom),
+                verticalArrangement = Arrangement.SpaceBetween
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = currentTime,
-                        color = Color.White.copy(alpha = 0.90f),
-                        fontSize = 72.sp,
-                        fontWeight = FontWeight.Light
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = "$currentDate • ${health.batteryPercent}% (${String.format(Locale.US, "%.1f", health.temperatureC)}°C)",
-                        color = activeTheme.textSecondary,
-                        fontSize = 18.sp
-                    )
-                    Spacer(Modifier.height(22.dp))
-                    Text(
-                        text = "Press any controller button to wake",
-                        color = activeTheme.accent.copy(alpha = 0.85f),
-                        fontSize = 14.sp
-                    )
+                // 1. Clean Top Bar: Brand left, Navigation middle, Real Device Status right
+                NatureGlassTopBar(
+                    activeTab = activeTab,
+                    focusedTabIndex = focusedNavIndex,
+                    isTopBarFocused = focusZone == HubFocusZone.TOP_BAR,
+                    isGlasses = isGlasses,
+                    currentTime = currentTime,
+                    networkType = networkType,
+                    health = health,
+                    thermalWarningEnabled = prefs.thermalWarningEnabled,
+                    glassesBatteryWarning = prefs.glassesBatteryWarning,
+                    onSelectTab = { tab -> activateNavTab(tab, focusGridAfter = true) },
+                    modifier = Modifier.padding(horizontal = outerPadH)
+                )
+
+                // 2. Main Split Workspace: Left Organic Featured Glass Panel + Right 2x3 App Card Grid
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(
+                            start = outerPadH,
+                            end = outerPadH,
+                            top = 10.dp,
+                            bottom = 10.dp
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 532.dp)
+                            .fillMaxHeight(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Left: Translucent dark-green organic featured panel
+                        NatureGlassFeaturedPanel(
+                            featuredItem = featuredItem,
+                            allAppsCount = allApps.size,
+                            isPinned = featuredIsPinned,
+                            isOpenButtonFocused = focusZone == HubFocusZone.FEATURED_OPEN,
+                            isGlasses = isGlasses,
+                            onOpenClick = {
+                                focusZone = HubFocusZone.FEATURED_OPEN
+                                activateGridItem(featuredItem)
+                            },
+                            modifier = Modifier
+                                .weight(1.18f)
+                                .fillMaxHeight()
+                                .padding(vertical = 10.dp)
+                        )
+
+                        // Right: Uniform 2-column x 3-row grid of large glass app cards
+                        BoxWithConstraints(
+                            modifier = Modifier
+                                .weight(1.0f)
+                                .fillMaxHeight()
+                        ) {
+                            val gridSpacing = 14.dp
+                            val gridPad = 12.dp
+                            val uniformCardHeight = ((maxHeight - gridPad * 2 - gridSpacing * 2) / 3f)
+                                .coerceAtLeast(112.dp)
+
+                            if (gridItems.isEmpty()) {
+                                Surface(
+                                    color = Color(0xA6082419),
+                                    shape = RoundedCornerShape(20.dp),
+                                    border = BorderStroke(1.2.dp, NatureGlassColors.CardBorderIdle),
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(gridPad)
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(28.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = activeTab.icon,
+                                            contentDescription = null,
+                                            tint = NatureGlassColors.EmeraldBright,
+                                            modifier = Modifier.size(48.dp)
+                                        )
+                                        Spacer(Modifier.height(14.dp))
+                                        Text(
+                                            text = "No ${activeTab.label} apps detected",
+                                            color = NatureGlassColors.TextPrimary,
+                                            fontSize = 20.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Spacer(Modifier.height(6.dp))
+                                        Text(
+                                            text = "Press Y for All Apps or switch to Home to view your pinned apps.",
+                                            color = NatureGlassColors.TextSecondary,
+                                            fontSize = 14.sp,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                }
+                            } else {
+                                LazyVerticalGrid(
+                                    state = homeGridState,
+                                    columns = GridCells.Fixed(2),
+                                    verticalArrangement = Arrangement.spacedBy(gridSpacing),
+                                    horizontalArrangement = Arrangement.spacedBy(gridSpacing),
+                                    contentPadding = PaddingValues(gridPad),
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    itemsIndexed(
+                                        items = gridItems,
+                                        key = { _, item ->
+                                            when (item) {
+                                                is NatureGridItem.App -> "${activeTab.name}:${item.entry.packageName}"
+                                                NatureGridItem.AllAppsTile -> "all_apps_tile"
+                                            }
+                                        }
+                                    ) { index, item ->
+                                        val isCardSelected = index == safeGridIndex
+                                        val showPinnedDot = activeTab != TopNavTab.HOME &&
+                                            item is NatureGridItem.App &&
+                                            pinnedPackagesSet.contains(item.entry.packageName)
+
+                                        NatureGlassGridCard(
+                                            item = item,
+                                            isSelected = isCardSelected,
+                                            isGridFocused = focusZone == HubFocusZone.APP_GRID,
+                                            showPinnedBadge = showPinnedDot,
+                                            cardHeight = uniformCardHeight,
+                                            onClick = {
+                                                focusZone = HubFocusZone.APP_GRID
+                                                selectedGridIndex = index
+                                                activateGridItem(item)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3. Bottom Translucent Controller-Hint Bar
+                NatureGlassBottomHintBar(
+                    openLabel = if (focusZone == HubFocusZone.TOP_BAR) "Select" else "Open",
+                    pinLabel = when {
+                        !canToggleFeaturedPin -> null
+                        featuredIsPinned -> "Unpin"
+                        else -> "Pin"
+                    },
+                    onOpen = {
+                        if (focusZone == HubFocusZone.TOP_BAR) {
+                            val tab = TopNavTab.entries[focusedNavIndex.coerceIn(0, TopNavTab.entries.lastIndex)]
+                            activateNavTab(tab, focusGridAfter = true)
+                        } else {
+                            activateGridItem(featuredItem)
+                        }
+                    },
+                    onPin = { togglePinForItem(featuredItem) },
+                    onAllApps = {
+                        SwitchAudioFeedback.playMenu(context)
+                        selectedDrawerIndex = 0
+                        showAllAppsDrawer = true
+                    },
+                    onBack = {
+                        when {
+                            focusZone != HubFocusZone.APP_GRID -> {
+                                focusZone = HubFocusZone.APP_GRID
+                                SwitchAudioFeedback.playBack(context)
+                            }
+                            activeTab != TopNavTab.HOME -> {
+                                activeTab = TopNavTab.HOME
+                                focusedNavIndex = 0
+                                selectedGridIndex = 0
+                                SwitchAudioFeedback.playBack(context)
+                            }
+                            else -> onExitHub()
+                        }
+                    }
+                )
+            }
+
+            // All Apps & Pin Manager Overlay
+            if (showAllAppsDrawer) {
+                AllAppsDrawerOverlay(
+                    allApps = allApps,
+                    pinnedPackages = pinnedPackagesSet,
+                    selectedIndex = selectedDrawerIndex.coerceIn(0, (allApps.size - 1).coerceAtLeast(0)),
+                    gridState = drawerGridState,
+                    activeTheme = modalTheme,
+                    onLaunchApp = { idx, app ->
+                        selectedDrawerIndex = idx
+                        showAllAppsDrawer = false
+                        onLaunchApp(app)
+                    },
+                    onTogglePin = { idx, app ->
+                        selectedDrawerIndex = idx
+                        SwitchAudioFeedback.playSelect(context)
+                        prefs.togglePinnedPackage(app.packageName)
+                        refreshPins()
+                    },
+                    onClose = {
+                        SwitchAudioFeedback.playBack(context)
+                        showAllAppsDrawer = false
+                    }
+                )
+            }
+
+            // In-Hub Switch Quick Menu Overlay (Settings tab & Start button)
+            if (showQuickMenu) {
+                InHubQuickMenuOverlay(
+                    health = health,
+                    prefs = prefs,
+                    activeTheme = modalTheme,
+                    selectedIndex = selectedMenuIndex,
+                    stateTick = menuStateTick,
+                    onSelectIndex = { selectedMenuIndex = it },
+                    onCycleTheme = {
+                        val nextTheme = activeTheme.next()
+                        activeTheme = nextTheme
+                        prefs.setThemeId(displayProfile, nextTheme.id)
+                    },
+                    onTriggerScreensaver = {
+                        showQuickMenu = false
+                        isIdleDimmed = true
+                    },
+                    onTriggerSleepMode = {
+                        triggerSleepMode()
+                    },
+                    onOpenBluetooth = {
+                        showQuickMenu = false
+                        bluetooth.open()
+                    },
+                    onClose = {
+                        SwitchAudioFeedback.playBack(context)
+                        showQuickMenu = false
+                    }
+                )
+            }
+
+            // In-hub Bluetooth devices screen
+            if (bluetooth.visible) {
+                BluetoothPanel(bluetooth, modalTheme)
+            }
+
+            // 5-Minute Idle Dimmer / Screensaver Clock
+            AnimatedVisibility(
+                visible = isIdleDimmed,
+                enter = fadeIn(tween(600)),
+                exit = fadeOut(tween(250))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.92f))
+                        .clickable {
+                            lastInteractionMs = System.currentTimeMillis()
+                            isIdleDimmed = false
+                            SwitchAudioFeedback.playMenu(context)
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = currentTime,
+                            color = Color.White.copy(alpha = 0.90f),
+                            fontSize = 72.sp,
+                            fontWeight = FontWeight.Light
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = "$currentDate • ${health.batteryPercent}% (${String.format(Locale.US, "%.1f", health.temperatureC)}°C)",
+                            color = modalTheme.textSecondary,
+                            fontSize = 18.sp
+                        )
+                        Spacer(Modifier.height(22.dp))
+                        Text(
+                            text = "Press any controller button to wake",
+                            color = modalTheme.accent.copy(alpha = 0.85f),
+                            fontSize = 14.sp
+                        )
+                    }
                 }
             }
         }
-    }
-    }
-}
-
-/** Built-in original sci-fi vista for apps with no launcher banner.
- * A glowing portal and city skyline make every selection feel like a feature poster. */
-@Composable
-private fun CosmicCityArtwork(theme: HubTheme, modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier) {
-        val w=size.width
-        val h=size.height
-        val neon = Color(0xFFDC53FF)
-        val cyan = Color(0xFF10E3FF)
-        drawRect(Brush.verticalGradient(
-            listOf(Color(0xFF07102D),Color(0xFF212063),Color(0xFF56147B),Color(0xFF0B123A))
-        ))
-        listOf(
-            Triple(Offset(w*.31f,h*.28f),h*.45f,neon),
-            Triple(Offset(w*.79f,h*.43f),h*.55f,cyan),
-            Triple(Offset(w*.72f,h*.71f),h*.38f,neon)
-        ).forEach{(p,r,color)->
-            drawCircle(Brush.radialGradient(
-                listOf(color.copy(alpha=.40f),color.copy(alpha=.09f),Color.Transparent),p,r
-            ),radius=r,center=p)
-        }
-        val p=Offset(w*.66f,h*.45f)
-        val planetR=h*.32f
-        drawCircle(Brush.radialGradient(
-            listOf(Color(0xFFB15BFF),Color(0xFF413E91),Color(0xFF071E52)),
-            center=Offset(p.x-planetR*.42f,p.y-planetR*.46f),
-            radius=planetR*1.64f
-        ),radius=planetR,center=p)
-        drawCircle(
-            brush=Brush.sweepGradient(listOf(neon,cyan,neon),center=p),
-            radius=planetR*.98f, center=p, style=Stroke(width=3.dp.toPx())
-        )
-        rotate(-23f,pivot=p){
-            drawOval(
-                color=neon.copy(alpha=.84f),
-                topLeft=Offset(p.x-planetR*1.75f,p.y-planetR*.37f),
-                size=Size(planetR*3.5f,planetR*.74f),
-                style=Stroke(width=3.dp.toPx())
-            )
-            drawOval(
-                color=cyan.copy(alpha=.56f),
-                topLeft=Offset(p.x-planetR*1.65f,p.y-planetR*.31f),
-                size=Size(planetR*3.3f,planetR*.62f),
-                style=Stroke(width=1.5.dp.toPx())
-            )
-        }
-        for (i in 0..85){
-            val x=w*(((i*31+7)%101)/101f)
-            val y=h*(((i*57+17)%97)/97f)*.68f
-            drawCircle(Color.White.copy(alpha=if(i%9==0).75f else .27f),
-                radius=if(i%9==0)1.2.dp.toPx() else .6.dp.toPx(),center=Offset(x,y))
-        }
-        // Citadel base and reflective causeway.
-        val base=Path().apply{
-            moveTo(w*.12f,h*.91f);lineTo(w*.31f,h*.78f)
-            lineTo(w*.76f,h*.78f);lineTo(w*.95f,h*.91f)
-            lineTo(w,h);lineTo(0f,h);close()
-        }
-        drawPath(base,Brush.verticalGradient(
-            listOf(Color(0xFF312361),Color(0xFF050B21)),h*.76f,h
-        ))
-        drawLine(brush=Brush.horizontalGradient(
-            listOf(Color.Transparent,neon,cyan,Color.Transparent)
-        ),start=Offset(w*.15f,h*.88f),end=Offset(w*.95f,h*.88f),
-        strokeWidth=3.dp.toPx())
-        // Spires have varied heights and luminous window seams.
-        for(i in 0..19){
-            val centerX=w*(.17f+i*.037f)
-            val towerHeight=h*(.09f+(((i*13+7)%11)/11f)*.31f)
-            val tw=w*(if(i%4==0).022f else .013f)
-            val top=h*.85f-towerHeight
-            drawRect(
-                brush=Brush.verticalGradient(listOf(Color(0xFF171F5F),Color(0xFF06102D))),
-                topLeft=Offset(centerX,top),size=Size(tw,towerHeight)
-            )
-            drawLine(color=if(i%3==0)cyan.copy(alpha=.85f)else neon.copy(alpha=.70f),
-                start=Offset(centerX+tw*.5f,top),
-                end=Offset(centerX+tw*.5f,h*.85f),
-                strokeWidth=1.dp.toPx())
-            if(i%4==0){
-                drawLine(color=cyan.copy(alpha=.64f),
-                    start=Offset(centerX+tw*.5f,top-h*.07f),
-                    end=Offset(centerX+tw*.5f,top),
-                    strokeWidth=2.dp.toPx())
-            }
-        }
-        // Dominant central tower reaches into the planet's halo.
-        val sx=w*.61f
-        val spire=Path().apply{
-            moveTo(sx-w*.023f,h*.84f)
-            lineTo(sx-w*.013f,h*.29f)
-            lineTo(sx,h*.18f)
-            lineTo(sx+w*.012f,h*.29f)
-            lineTo(sx+w*.024f,h*.84f);close()
-        }
-        drawPath(spire,Brush.horizontalGradient(
-            listOf(Color(0xFF0F245A),Color(0xFF592F8D),Color(0xFF071539))
-        ))
-        drawLine(color=cyan.copy(alpha=.92f),
-            start=Offset(sx,h*.21f),end=Offset(sx,h*.84f),
-            strokeWidth=2.dp.toPx())
-        drawCircle(
-            brush=Brush.radialGradient(
-                listOf(cyan.copy(alpha=.63f),Color.Transparent),
-                center=Offset(sx,h*.78f), radius=h*.23f
-            ),
-            center=Offset(sx,h*.78f),radius=h*.23f
-        )
-        // Foreground depth fade keeps title readable.
-        drawRect(Brush.verticalGradient(
-            listOf(Color.Transparent,Color(0x1B061128),Color(0xA900071B)),
-            startY=h*.45f,endY=h
-        ))
-    }
-}
-
-/** Reusable neon tile canvas: varied cyan/violet artwork for apps without banners. */
-@Composable
-private fun NeonTileBackdrop(
-    theme: HubTheme,
-    seed: Int,
-    modifier: Modifier = Modifier
-) {
-    Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
-        val cyan = Color(0xFF00DFFF)
-        val purple = Color(0xFFB739FF)
-        val flip = seed % 3 == 0
-        drawRect(
-            Brush.linearGradient(
-                if (flip) listOf(Color(0xFF06315B),Color(0xFF10143D),Color(0xFF43145E))
-                else listOf(Color(0xFF23165C),Color(0xFF140C38),Color(0xFF530C7B)),
-                start = Offset(0f,0f), end = Offset(w,h)
-            )
-        )
-        val glow = Offset(w*(if(flip).69f else .32f),h*.41f)
-        drawCircle(
-            brush = Brush.radialGradient(
-                listOf((if(flip)cyan else purple).copy(alpha=.64f),Color.Transparent),
-                center=glow,radius=w*.54f
-            ),
-            center=glow,radius=w*.54f
-        )
-        for(i in -2..7) {
-            val x = w*i/6f
-            drawLine(
-                color = (if (flip)cyan else theme.accent).copy(alpha=.15f),
-                start = Offset(x,0f),
-                end = Offset(x+w*.39f,h),
-                strokeWidth = 1.dp.toPx()
-            )
-        }
-        for(i in 0..12) {
-            drawCircle(
-                color = Color.White.copy(alpha=if(i%4==0).54f else .16f),
-                radius=if(i%4==0)1.1.dp.toPx() else .65.dp.toPx(),
-                center=Offset(w*(((i*7+5)%17)/17f),h*(((i*11+3)%19)/19f)*.72f)
-            )
-        }
-    }
-}
-
-@Composable
-private fun SwitchAppTile(
-    app: AppEntry,
-    isSelected: Boolean,
-    theme: HubTheme,
-    onClick: () -> Unit,
-    tileWidth: androidx.compose.ui.unit.Dp = 158.dp,
-    tileHeight: androidx.compose.ui.unit.Dp = 114.dp
-) {
-    val scale by animateFloatAsState(
-        targetValue = if (isSelected) 1.055f else .97f,
-        animationSpec = tween(200),
-        label = "showcaseTileFocus"
-    )
-    val shape = RoundedCornerShape(18.dp)
-    Box(
-        modifier = Modifier
-            .size(width = tileWidth, height = tileHeight)
-            .scale(scale)
-            .shadow(
-                elevation = if (isSelected) 17.dp else 3.dp,
-                shape = shape,
-                ambientColor = Color(0xFFB63DFF),
-                spotColor = Color(0xFF0FCDFB)
-            )
-            .clip(shape)
-            .background(theme.surfaceElevated)
-            .border(
-                width = if (isSelected) 3.dp else 1.dp,
-                brush = if (isSelected) Brush.linearGradient(
-                    listOf(Color.White,Color(0xFFCB46FF),Color(0xFF12E0FF))
-                ) else Brush.linearGradient(listOf(theme.borderSubtle,theme.borderSubtle)),
-                shape = shape
-            )
-            .clickable { onClick() },
-        contentAlignment = Alignment.Center
-    ) {
-        if (app.banner != null) {
-            Image(
-                bitmap = app.banner,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-        } else {
-            NeonTileBackdrop(
-                theme = theme,
-                seed = app.packageName.hashCode(),
-                modifier = Modifier.fillMaxSize()
-            )
-            Image(
-                bitmap = app.icon,
-                contentDescription = null,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(bottom = 14.dp)
-                    .size(if (tileWidth < 112.dp) 42.dp else 57.dp)
-                    .clip(RoundedCornerShape(12.dp))
-            )
-        }
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .height(48.dp)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color.Transparent,Color(0xF0070822))
-                    )
-                )
-        )
-        Text(
-            text = app.label,
-            color = Color.White,
-            fontSize = if (tileWidth < 112.dp) 11.sp else 13.sp,
-            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.align(Alignment.BottomCenter)
-                .fillMaxWidth().padding(horizontal = 7.dp, vertical = 9.dp)
-        )
-        if (isSelected) {
-            Box(
-                Modifier.align(Alignment.TopCenter).padding(top = 3.dp)
-                    .width(50.dp).height(3.dp).clip(RoundedCornerShape(50))
-                    .background(Brush.horizontalGradient(
-                        listOf(Color(0xFFBB4EFF),Color(0xFF00DFFF))
-                    ))
-            )
-        }
-    }
-}
-
-@Composable
-private fun ActionTile(
-    title: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    theme: HubTheme,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    tileWidth: androidx.compose.ui.unit.Dp = 158.dp,
-    tileHeight: androidx.compose.ui.unit.Dp = 114.dp
-) {
-    val shape = RoundedCornerShape(18.dp)
-    val scale by animateFloatAsState(
-        targetValue = if (isSelected) 1.055f else .97f,
-        animationSpec = tween(200),
-        label = "systemTileFocus"
-    )
-    Box(
-        modifier = Modifier
-            .size(width = tileWidth, height = tileHeight)
-            .scale(scale)
-            .shadow(
-                elevation = if (isSelected) 17.dp else 3.dp,
-                shape = shape,
-                ambientColor = Color(0xFFA83AFF),
-                spotColor = Color(0xFF07D5F9)
-            )
-            .clip(shape)
-            .background(theme.surfaceElevated)
-            .border(
-                width = if (isSelected) 3.dp else 1.dp,
-                brush = if(isSelected) Brush.linearGradient(
-                    listOf(Color.White,Color(0xFFBC48FE),Color(0xFF08DAF9))
-                ) else Brush.linearGradient(listOf(theme.borderSubtle,theme.borderSubtle)),
-                shape = shape
-            )
-            .clickable { onClick() },
-        contentAlignment = Alignment.Center
-    ) {
-        NeonTileBackdrop(theme = theme, seed = title.hashCode(), modifier = Modifier.fillMaxSize())
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = Color(0xFFECE3FF),
-            modifier = Modifier.align(Alignment.Center).padding(bottom = 12.dp).size(if (tileWidth < 112.dp) 33.dp else 47.dp)
-        )
-        Box(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(48.dp)
-                .background(Brush.verticalGradient(listOf(Color.Transparent,Color(0xED090A26))))
-        )
-        Text(
-            text = title,
-            color = Color.White,
-            fontSize = if (tileWidth < 112.dp) 11.sp else 13.sp,
-            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            modifier = Modifier.align(Alignment.BottomCenter)
-                .fillMaxWidth().padding(horizontal = 7.dp, vertical = 9.dp)
-        )
     }
 }
 
@@ -2241,7 +1662,7 @@ private fun InHubQuickMenuOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xCC06080D))
+            .background(activeTheme.bgBottom.copy(alpha = 0.86f))
             .clickable { onClose() },
         contentAlignment = Alignment.Center
     ) {
@@ -2512,7 +1933,7 @@ private fun AllAppsDrawerOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xEB07090E))
+            .background(activeTheme.bgBottom.copy(alpha = 0.90f))
             .padding(34.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
