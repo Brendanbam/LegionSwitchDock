@@ -135,8 +135,11 @@ import com.legion.switchdock.ui.NatureGlassBottomHintBar
 import com.legion.switchdock.ui.NatureGlassColors
 import com.legion.switchdock.ui.NatureGlassFeaturedPanel
 import com.legion.switchdock.ui.NatureGlassGridCard
+import com.legion.switchdock.ui.NatureGlassSettingsWorkspace
 import com.legion.switchdock.ui.NatureGlassTopBar
 import com.legion.switchdock.ui.NatureGridItem
+import com.legion.switchdock.ui.NatureSettingsState
+import com.legion.switchdock.ui.SettingsFocusTarget
 import com.legion.switchdock.ui.TopNavTab
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -320,6 +323,8 @@ class TvHubActivity : ComponentActivity() {
         activeInstance = this
         isInstanceResumed = true
         hideSystemBars()
+        window.decorView.isFocusable = true
+        window.decorView.isFocusableInTouchMode = true
         window.decorView.requestFocus()
     }
 
@@ -614,7 +619,6 @@ private fun SwitchTvHubScreen(
     var allApps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
     var pinnedApps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
     var showAllAppsDrawer by remember { mutableStateOf(false) }
-    var showQuickMenu by remember { mutableStateOf(false) }
     var isIdleDimmed by remember { mutableStateOf(false) }
     var lastInteractionMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var displayProfile by remember { mutableStateOf(prefs.activeProfile) }
@@ -623,12 +627,13 @@ private fun SwitchTvHubScreen(
 
     // Deterministic controller selection states (never lost when display focus shifts!)
     var activeTab by remember { mutableStateOf(TopNavTab.HOME) }
+    var previousBrowseTab by remember { mutableStateOf(TopNavTab.HOME) }
     var focusZone by remember { mutableStateOf(HubFocusZone.APP_GRID) }
     var focusedNavIndex by remember { mutableIntStateOf(0) }
     var selectedGridIndex by remember { mutableIntStateOf(0) }
     var selectedDrawerIndex by remember { mutableIntStateOf(0) }
-    var selectedMenuIndex by remember { mutableIntStateOf(0) }
-    var menuStateTick by remember { mutableIntStateOf(0) }
+    var settingsFocus by remember { mutableStateOf(SettingsFocusTarget.BLUETOOTH) }
+    var settingsTick by remember { mutableIntStateOf(0) }
 
     val homeGridState = rememberLazyGridState()
     val drawerGridState = rememberLazyGridState()
@@ -710,18 +715,39 @@ private fun SwitchTvHubScreen(
     val latestAllApps by rememberUpdatedState(allApps)
     val latestGridItems by rememberUpdatedState(gridItems)
     val latestActiveTab by rememberUpdatedState(activeTab)
+    val latestPreviousBrowseTab by rememberUpdatedState(previousBrowseTab)
     val latestFocusZone by rememberUpdatedState(focusZone)
     val latestFocusedNavIndex by rememberUpdatedState(focusedNavIndex)
+    val latestSettingsFocus by rememberUpdatedState(settingsFocus)
+
+    fun openSettingsTab() {
+        if (activeTab != TopNavTab.SETTINGS) {
+            previousBrowseTab = activeTab
+        }
+        activeTab = TopNavTab.SETTINGS
+        focusedNavIndex = TopNavTab.SETTINGS.ordinal
+        settingsFocus = SettingsFocusTarget.BLUETOOTH
+        focusZone = HubFocusZone.APP_GRID
+        settingsTick++
+        SwitchAudioFeedback.playMenu(context)
+    }
+
+    fun closeSettingsTab() {
+        val returnTab = previousBrowseTab.takeIf { it != TopNavTab.SETTINGS } ?: TopNavTab.HOME
+        activeTab = returnTab
+        focusedNavIndex = returnTab.ordinal
+        focusZone = HubFocusZone.APP_GRID
+        SwitchAudioFeedback.playBack(context)
+    }
 
     fun activateNavTab(tab: TopNavTab, focusGridAfter: Boolean) {
         val tabIdx = TopNavTab.entries.indexOf(tab).coerceAtLeast(0)
         focusedNavIndex = tabIdx
         if (tab == TopNavTab.SETTINGS) {
-            selectedMenuIndex = 0
-            showQuickMenu = true
-            SwitchAudioFeedback.playMenu(context)
+            openSettingsTab()
         } else {
             activeTab = tab
+            previousBrowseTab = tab
             selectedGridIndex = 0
             if (focusGridAfter) {
                 focusZone = HubFocusZone.APP_GRID
@@ -750,12 +776,85 @@ private fun SwitchTvHubScreen(
     }
 
     fun triggerSleepMode() {
-        showQuickMenu = false
         isIdleDimmed = true
         onSetKeepScreenOn(false)
         if (ShizukuHelper.getStatus() == ShizukuStatus.READY) {
             ShizukuHelper.sleepDevice(context)
         }
+    }
+
+    fun performSettingsAction(target: SettingsFocusTarget) {
+        settingsFocus = target
+        focusZone = HubFocusZone.APP_GRID
+        SwitchAudioFeedback.playSelect(context)
+        when (target) {
+            SettingsFocusTarget.VOL_DOWN ->
+                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0)
+            SettingsFocusTarget.VOL_UP ->
+                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0)
+            SettingsFocusTarget.VOL_MUTE ->
+                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, 0)
+            SettingsFocusTarget.SCREENSAVER -> {
+                isIdleDimmed = true
+            }
+            SettingsFocusTarget.SLEEP -> triggerSleepMode()
+            SettingsFocusTarget.EXIT_HUB -> onExitHub()
+            SettingsFocusTarget.BLUETOOTH -> bluetooth.open()
+            SettingsFocusTarget.WIFI_BOOST -> {
+                val next = !prefs.artemisWifiBoostEnabled
+                prefs.artemisWifiBoostEnabled = next
+                ArtemisBoostManager.setBoostActive(context, next)
+            }
+            SettingsFocusTarget.BYPASS_CHARGING -> {
+                if (ShizukuHelper.getStatus() == ShizukuStatus.READY) {
+                    val next = !prefs.bypassChargingEnabled
+                    if (ShizukuHelper.setBypassCharging(context, next)) {
+                        prefs.bypassChargingEnabled = next
+                    }
+                } else {
+                    DockHealthMonitor.openBypassChargingSettings(context)
+                }
+            }
+            SettingsFocusTarget.UI_SOUNDS -> {
+                prefs.uiSoundsEnabled = !prefs.uiSoundsEnabled
+            }
+            SettingsFocusTarget.IDLE_SCREENSAVER -> {
+                prefs.idleDimmerEnabled = !prefs.idleDimmerEnabled
+            }
+            SettingsFocusTarget.BLACKOUT_TABLET -> {
+                prefs.blackoutTabletOnDock = !prefs.blackoutTabletOnDock
+            }
+            SettingsFocusTarget.DISPLAY_THEME -> {
+                val currentShown = if (!isGlasses && activeTheme == HubTheme.SWITCH_DARK) {
+                    HubTheme.EMERALD_PULSE
+                } else {
+                    activeTheme
+                }
+                val nextTheme = currentShown.next()
+                activeTheme = nextTheme
+                prefs.setThemeId(displayProfile, nextTheme.id)
+            }
+            SettingsFocusTarget.GLASSES_SIZE -> cycleGlassesScreenSize()
+        }
+        settingsTick++
+    }
+
+    val liveSettingsState = remember(settingsTick, screenSizeTick, activeTheme, health, isGlasses) {
+        val displayTheme = if (isGlasses) activeTheme
+        else if (activeTheme == HubTheme.SWITCH_DARK) HubTheme.EMERALD_PULSE
+        else activeTheme
+        NatureSettingsState(
+            volumePct = readVolumePct(audioManager),
+            isMuted = audioManager.isStreamMute(AudioManager.STREAM_MUSIC),
+            uiSoundsEnabled = prefs.uiSoundsEnabled,
+            idleDimmerEnabled = prefs.idleDimmerEnabled,
+            artemisWifiBoostEnabled = prefs.artemisWifiBoostEnabled,
+            blackoutTabletOnDock = prefs.blackoutTabletOnDock,
+            bypassChargingEnabled = prefs.bypassChargingEnabled,
+            shizukuReady = ShizukuHelper.getStatus() == ShizukuStatus.READY,
+            activeTheme = displayTheme,
+            glassesScreenSizePct = prefs.glassesScreenSizePct
+        )
     }
 
     LaunchedEffect(isIdleDimmed) {
@@ -781,8 +880,10 @@ private fun SwitchTvHubScreen(
             val currentAll = latestAllApps
             val currentItems = latestGridItems
             val currentTab = latestActiveTab
+            val currentPrevTab = latestPreviousBrowseTab
             val currentZone = latestFocusZone
             val currentNavIdx = latestFocusedNavIndex
+            val currentSettingsTarget = latestSettingsFocus
             val currentSafeIdx = if (currentItems.isEmpty()) 0 else selectedGridIndex.coerceIn(0, currentItems.lastIndex)
             val currentItem = currentItems.getOrNull(currentSafeIdx)
             val currentFocusedPkg = (currentItem as? NatureGridItem.App)?.entry?.packageName
@@ -795,61 +896,6 @@ private fun SwitchTvHubScreen(
                         else -> SwitchAudioFeedback.playMove(context)
                     }
                     bluetooth.handle(cmd)
-                }
-
-                showQuickMenu -> {
-                    val menuCount = 12
-                    when (cmd) {
-                        ControllerCommand.UP, ControllerCommand.LEFT, ControllerCommand.L1_PREV -> {
-                            selectedMenuIndex = (selectedMenuIndex - 1 + menuCount) % menuCount
-                            SwitchAudioFeedback.playMove(context)
-                        }
-                        ControllerCommand.DOWN, ControllerCommand.RIGHT, ControllerCommand.R1_NEXT -> {
-                            selectedMenuIndex = (selectedMenuIndex + 1) % menuCount
-                            SwitchAudioFeedback.playMove(context)
-                        }
-                        ControllerCommand.B_BACK, ControllerCommand.START_MENU -> {
-                            showQuickMenu = false
-                            SwitchAudioFeedback.playBack(context)
-                        }
-                        ControllerCommand.A_CONFIRM -> {
-                            SwitchAudioFeedback.playSelect(context)
-                            when (selectedMenuIndex) {
-                                0 -> audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0)
-                                1 -> audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0)
-                                2 -> audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, 0)
-                                3 -> {
-                                    showQuickMenu = false
-                                    bluetooth.open()
-                                }
-                                4 -> prefs.uiSoundsEnabled = !prefs.uiSoundsEnabled
-                                5 -> prefs.idleDimmerEnabled = !prefs.idleDimmerEnabled
-                                6 -> {
-                                    showQuickMenu = false
-                                    isIdleDimmed = true
-                                }
-                                7 -> {
-                                    if (ShizukuHelper.getStatus() == ShizukuStatus.READY) {
-                                        val next = !prefs.bypassChargingEnabled
-                                        if (ShizukuHelper.setBypassCharging(context, next)) prefs.bypassChargingEnabled = next
-                                    } else {
-                                        showQuickMenu = false
-                                        DockHealthMonitor.openBypassChargingSettings(context)
-                                    }
-                                }
-                                8 -> {
-                                    val nextTheme = activeTheme.next()
-                                    activeTheme = nextTheme
-                                    prefs.setThemeId(displayProfile, nextTheme.id)
-                                }
-                                9 -> triggerSleepMode()
-                                10 -> cycleGlassesScreenSize()
-                                11 -> showQuickMenu = false
-                            }
-                            menuStateTick++
-                        }
-                        else -> {}
-                    }
                 }
 
                 showAllAppsDrawer -> {
@@ -891,9 +937,7 @@ private fun SwitchTvHubScreen(
                         }
                         ControllerCommand.START_MENU -> {
                             showAllAppsDrawer = false
-                            selectedMenuIndex = 0
-                            showQuickMenu = true
-                            SwitchAudioFeedback.playMenu(context)
+                            openSettingsTab()
                         }
                         else -> {}
                     }
@@ -912,16 +956,21 @@ private fun SwitchTvHubScreen(
                         }
                         ControllerCommand.DOWN -> {
                             val targetTab = TopNavTab.entries[currentNavIdx.coerceIn(0, tabCount - 1)]
-                            if (targetTab != TopNavTab.SETTINGS && targetTab != currentTab) {
-                                activeTab = targetTab
-                                selectedGridIndex = 0
-                            }
-                            focusZone = if (currentItems.isEmpty() && targetTab == currentTab) {
-                                HubFocusZone.FEATURED_OPEN
+                            if (targetTab == TopNavTab.SETTINGS) {
+                                openSettingsTab()
                             } else {
-                                HubFocusZone.APP_GRID
+                                if (targetTab != currentTab) {
+                                    activeTab = targetTab
+                                    previousBrowseTab = targetTab
+                                    selectedGridIndex = 0
+                                }
+                                focusZone = if (currentItems.isEmpty() && targetTab == currentTab) {
+                                    HubFocusZone.FEATURED_OPEN
+                                } else {
+                                    HubFocusZone.APP_GRID
+                                }
+                                SwitchAudioFeedback.playMove(context)
                             }
-                            SwitchAudioFeedback.playMove(context)
                         }
                         ControllerCommand.A_CONFIRM -> {
                             val targetTab = TopNavTab.entries[currentNavIdx.coerceIn(0, tabCount - 1)]
@@ -937,9 +986,43 @@ private fun SwitchTvHubScreen(
                             showAllAppsDrawer = true
                         }
                         ControllerCommand.START_MENU -> {
+                            if (currentTab == TopNavTab.SETTINGS) {
+                                closeSettingsTab()
+                            } else {
+                                openSettingsTab()
+                            }
+                        }
+                        else -> {}
+                    }
+                }
+
+                currentTab == TopNavTab.SETTINGS -> {
+                    when (cmd) {
+                        ControllerCommand.LEFT, ControllerCommand.RIGHT,
+                        ControllerCommand.UP, ControllerCommand.DOWN,
+                        ControllerCommand.L1_PREV, ControllerCommand.R1_NEXT -> {
+                            val next = currentSettingsTarget.navigate(cmd)
+                            if (next == null) {
+                                focusedNavIndex = TopNavTab.SETTINGS.ordinal
+                                focusZone = HubFocusZone.TOP_BAR
+                                SwitchAudioFeedback.playMove(context)
+                            } else if (next != currentSettingsTarget) {
+                                settingsFocus = next
+                                SwitchAudioFeedback.playMove(context)
+                            }
+                        }
+                        ControllerCommand.A_CONFIRM -> performSettingsAction(currentSettingsTarget)
+                        ControllerCommand.B_BACK, ControllerCommand.START_MENU -> {
+                            val returnTab = currentPrevTab.takeIf { it != TopNavTab.SETTINGS } ?: TopNavTab.HOME
+                            activeTab = returnTab
+                            focusedNavIndex = returnTab.ordinal
+                            focusZone = HubFocusZone.APP_GRID
+                            SwitchAudioFeedback.playBack(context)
+                        }
+                        ControllerCommand.Y_DRAWER -> {
                             SwitchAudioFeedback.playMenu(context)
-                            selectedMenuIndex = 0
-                            showQuickMenu = true
+                            selectedDrawerIndex = 0
+                            showAllAppsDrawer = true
                         }
                         else -> {}
                     }
@@ -970,16 +1053,13 @@ private fun SwitchTvHubScreen(
                                 focusZone = HubFocusZone.APP_GRID
                             } else if (currentTab != TopNavTab.HOME) {
                                 activeTab = TopNavTab.HOME
+                                previousBrowseTab = TopNavTab.HOME
                                 selectedGridIndex = 0
                                 focusZone = HubFocusZone.APP_GRID
                             }
                             SwitchAudioFeedback.playBack(context)
                         }
-                        ControllerCommand.START_MENU -> {
-                            SwitchAudioFeedback.playMenu(context)
-                            selectedMenuIndex = 0
-                            showQuickMenu = true
-                        }
+                        ControllerCommand.START_MENU -> openSettingsTab()
                         else -> {}
                     }
                 }
@@ -1036,16 +1116,13 @@ private fun SwitchTvHubScreen(
                         ControllerCommand.B_BACK -> {
                             if (currentTab != TopNavTab.HOME) {
                                 activeTab = TopNavTab.HOME
+                                previousBrowseTab = TopNavTab.HOME
                                 focusedNavIndex = 0
                                 selectedGridIndex = 0
                                 SwitchAudioFeedback.playBack(context)
                             }
                         }
-                        ControllerCommand.START_MENU -> {
-                            SwitchAudioFeedback.playMenu(context)
-                            selectedMenuIndex = 0
-                            showQuickMenu = true
-                        }
+                        ControllerCommand.START_MENU -> openSettingsTab()
                         ControllerCommand.L1_PREV -> {
                             if (currentTab == TopNavTab.HOME && currentFocusedPkg != null &&
                                 !AppRepository.isVirtualTile(currentFocusedPkg) &&
@@ -1183,6 +1260,14 @@ private fun SwitchTvHubScreen(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 )
+                // Gentle emerald depth scrim when Settings Command Center is open so every toggle pops
+                if (activeTab == TopNavTab.SETTINGS) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0x6602120B))
+                    )
+                }
                 // Gentle top contrast vignette so top-bar nav and status stay razor sharp
                 Box(
                     modifier = Modifier
@@ -1241,7 +1326,7 @@ private fun SwitchTvHubScreen(
                     modifier = Modifier.padding(horizontal = outerPadH)
                 )
 
-                // 2. Main Split Workspace: Left Organic Featured Glass Panel + Right 2x3 App Card Grid
+                // 2. Main Split Workspace: Settings Command Center OR Featured Panel + 2x3 App Grid
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1254,6 +1339,22 @@ private fun SwitchTvHubScreen(
                         ),
                     contentAlignment = Alignment.Center
                 ) {
+                    if (activeTab == TopNavTab.SETTINGS) {
+                        NatureGlassSettingsWorkspace(
+                            health = health,
+                            networkType = networkType,
+                            displaySummary = displaySummary,
+                            state = liveSettingsState,
+                            focusedTarget = settingsFocus,
+                            isSettingsFocused = focusZone != HubFocusZone.TOP_BAR,
+                            isGlasses = isGlasses,
+                            onAction = { target -> performSettingsAction(target) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 548.dp)
+                                .fillMaxHeight()
+                        )
+                    } else {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1368,22 +1469,42 @@ private fun SwitchTvHubScreen(
                             }
                         }
                     }
+                    }
                 }
 
                 // 3. Bottom Translucent Controller-Hint Bar
+                val isSettingsOpen = activeTab == TopNavTab.SETTINGS
+                val settingsConfirmLabel = when (settingsFocus) {
+                    SettingsFocusTarget.VOL_DOWN, SettingsFocusTarget.VOL_UP -> "Adjust"
+                    SettingsFocusTarget.WIFI_BOOST,
+                    SettingsFocusTarget.UI_SOUNDS,
+                    SettingsFocusTarget.IDLE_SCREENSAVER,
+                    SettingsFocusTarget.BLACKOUT_TABLET -> "Toggle"
+                    SettingsFocusTarget.BYPASS_CHARGING -> if (liveSettingsState.shizukuReady) "Toggle" else "Open"
+                    SettingsFocusTarget.DISPLAY_THEME, SettingsFocusTarget.GLASSES_SIZE -> "Cycle"
+                    else -> "Select"
+                }
                 NatureGlassBottomHintBar(
-                    openLabel = if (focusZone == HubFocusZone.TOP_BAR) "Select" else "Open",
+                    openLabel = when {
+                        focusZone == HubFocusZone.TOP_BAR -> "Select"
+                        isSettingsOpen -> settingsConfirmLabel
+                        else -> "Open"
+                    },
                     pinLabel = when {
+                        isSettingsOpen -> null
                         !canToggleFeaturedPin -> null
                         featuredIsPinned -> "Unpin"
                         else -> "Pin"
                     },
+                    showPinAction = !isSettingsOpen,
                     onOpen = {
-                        if (focusZone == HubFocusZone.TOP_BAR) {
-                            val tab = TopNavTab.entries[focusedNavIndex.coerceIn(0, TopNavTab.entries.lastIndex)]
-                            activateNavTab(tab, focusGridAfter = true)
-                        } else {
-                            activateGridItem(featuredItem)
+                        when {
+                            focusZone == HubFocusZone.TOP_BAR -> {
+                                val tab = TopNavTab.entries[focusedNavIndex.coerceIn(0, TopNavTab.entries.lastIndex)]
+                                activateNavTab(tab, focusGridAfter = true)
+                            }
+                            isSettingsOpen -> performSettingsAction(settingsFocus)
+                            else -> activateGridItem(featuredItem)
                         }
                     },
                     onPin = { togglePinForItem(featuredItem) },
@@ -1394,12 +1515,14 @@ private fun SwitchTvHubScreen(
                     },
                     onBack = {
                         when {
+                            isSettingsOpen -> closeSettingsTab()
                             focusZone != HubFocusZone.APP_GRID -> {
                                 focusZone = HubFocusZone.APP_GRID
                                 SwitchAudioFeedback.playBack(context)
                             }
                             activeTab != TopNavTab.HOME -> {
                                 activeTab = TopNavTab.HOME
+                                previousBrowseTab = TopNavTab.HOME
                                 focusedNavIndex = 0
                                 selectedGridIndex = 0
                                 SwitchAudioFeedback.playBack(context)
@@ -1432,38 +1555,6 @@ private fun SwitchTvHubScreen(
                     onClose = {
                         SwitchAudioFeedback.playBack(context)
                         showAllAppsDrawer = false
-                    }
-                )
-            }
-
-            // In-Hub Switch Quick Menu Overlay (Settings tab & Start button)
-            if (showQuickMenu) {
-                InHubQuickMenuOverlay(
-                    health = health,
-                    prefs = prefs,
-                    activeTheme = modalTheme,
-                    selectedIndex = selectedMenuIndex,
-                    stateTick = menuStateTick,
-                    onSelectIndex = { selectedMenuIndex = it },
-                    onCycleTheme = {
-                        val nextTheme = activeTheme.next()
-                        activeTheme = nextTheme
-                        prefs.setThemeId(displayProfile, nextTheme.id)
-                    },
-                    onTriggerScreensaver = {
-                        showQuickMenu = false
-                        isIdleDimmed = true
-                    },
-                    onTriggerSleepMode = {
-                        triggerSleepMode()
-                    },
-                    onOpenBluetooth = {
-                        showQuickMenu = false
-                        bluetooth.open()
-                    },
-                    onClose = {
-                        SwitchAudioFeedback.playBack(context)
-                        showQuickMenu = false
                     }
                 )
             }
@@ -1516,325 +1607,6 @@ private fun SwitchTvHubScreen(
     }
 }
 
-private data class QuickMenuRowSpec(
-    val index: Int,
-    val title: String,
-    val badge: String,
-    val badgePositive: Boolean = false,
-    val onClick: () -> Unit
-)
-
-@Composable
-private fun InHubQuickMenuOverlay(
-    health: DockHealthSnapshot,
-    prefs: DockPreferences,
-    activeTheme: HubTheme,
-    selectedIndex: Int,
-    stateTick: Int,
-    onSelectIndex: (Int) -> Unit,
-    onCycleTheme: () -> Unit,
-    onTriggerScreensaver: () -> Unit,
-    onTriggerSleepMode: () -> Unit,
-    onOpenBluetooth: () -> Unit,
-    onClose: () -> Unit
-) {
-    val context = LocalContext.current
-    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
-    var volumePct by remember { mutableIntStateOf(readVolumePct(audioManager)) }
-    var isMuted by remember { mutableStateOf(audioManager.isStreamMute(AudioManager.STREAM_MUSIC)) }
-    var uiSounds by remember { mutableStateOf(prefs.uiSoundsEnabled) }
-    var idleDimmer by remember { mutableStateOf(prefs.idleDimmerEnabled) }
-    var bypassEnabled by remember { mutableStateOf(prefs.bypassChargingEnabled) }
-    val shizukuReady = remember(selectedIndex, stateTick) { ShizukuHelper.getStatus() == ShizukuStatus.READY }
-    val listState = rememberLazyListState()
-
-    LaunchedEffect(selectedIndex, stateTick) {
-        volumePct = readVolumePct(audioManager)
-        isMuted = audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
-        uiSounds = prefs.uiSoundsEnabled
-        idleDimmer = prefs.idleDimmerEnabled
-        bypassEnabled = prefs.bypassChargingEnabled
-        if (selectedIndex >= 3) {
-            runCatching { listState.animateScrollToItem((selectedIndex - 3).coerceAtLeast(0)) }
-        }
-    }
-
-    val rows = listOf(
-        QuickMenuRowSpec(
-            index = 3,
-            title = "Bluetooth Devices",
-            badge = "OPEN",
-            onClick = {
-                onSelectIndex(3)
-                onOpenBluetooth()
-            }
-        ),
-        QuickMenuRowSpec(
-            index = 4,
-            title = "UI Navigation Sounds",
-            badge = if (uiSounds) "ON" else "OFF",
-            badgePositive = uiSounds,
-            onClick = {
-                onSelectIndex(4)
-                uiSounds = !uiSounds
-                prefs.uiSoundsEnabled = uiSounds
-            }
-        ),
-        QuickMenuRowSpec(
-            index = 5,
-            title = "5-Min Idle Screensaver",
-            badge = if (idleDimmer) "ON" else "OFF",
-            badgePositive = idleDimmer,
-            onClick = {
-                onSelectIndex(5)
-                idleDimmer = !idleDimmer
-                prefs.idleDimmerEnabled = idleDimmer
-            }
-        ),
-        QuickMenuRowSpec(
-            index = 6,
-            title = "Screensaver",
-            badge = "START NOW",
-            onClick = {
-                onSelectIndex(6)
-                onTriggerScreensaver()
-            }
-        ),
-        QuickMenuRowSpec(
-            index = 7,
-            title = if (shizukuReady) "Bypass Charging" else "Bypass Charging / Game Assistant",
-            badge = if (shizukuReady) (if (bypassEnabled) "ON" else "OFF") else "SETTINGS",
-            badgePositive = shizukuReady && bypassEnabled,
-            onClick = {
-                onSelectIndex(7)
-                if (ShizukuHelper.getStatus() == ShizukuStatus.READY) {
-                    val next = !bypassEnabled
-                    if (ShizukuHelper.setBypassCharging(context, next)) {
-                        bypassEnabled = next
-                        prefs.bypassChargingEnabled = next
-                    }
-                } else {
-                    onClose()
-                    DockHealthMonitor.openBypassChargingSettings(context)
-                }
-            }
-        ),
-        QuickMenuRowSpec(
-            index = 8,
-            title = "Display Theme",
-            badge = activeTheme.displayName,
-            badgePositive = true,
-            onClick = {
-                onSelectIndex(8)
-                onCycleTheme()
-            }
-        ),
-        QuickMenuRowSpec(
-            index = 9,
-            title = "Sleep Mode (Tablet & TV)",
-            badge = "SLEEP",
-            onClick = {
-                onSelectIndex(9)
-                onTriggerSleepMode()
-            }
-        ),
-        QuickMenuRowSpec(
-            index = 10,
-            title = "Glasses Screen Size",
-            badge = "${screenSizeTick.let { prefs.glassesScreenSizePct }}%",
-            badgePositive = true,
-            onClick = {
-                onSelectIndex(10)
-                cycleGlassesScreenSize()
-            }
-        ),
-        QuickMenuRowSpec(
-            index = 11,
-            title = "Close Menu",
-            badge = "B",
-            onClick = {
-                onSelectIndex(11)
-                onClose()
-            }
-        )
-    )
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(activeTheme.bgBottom.copy(alpha = 0.86f))
-            .clickable { onClose() },
-        contentAlignment = Alignment.Center
-    ) {
-        Surface(
-            color = activeTheme.surfaceModal,
-            shape = RoundedCornerShape(20.dp),
-            border = BorderStroke(1.dp, activeTheme.accent.copy(alpha = 0.45f)),
-            modifier = Modifier
-                .width(560.dp)
-                .clickable(enabled = false) {}
-        ) {
-            Column(
-                modifier = Modifier.padding(22.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(
-                            text = "QUICK MENU",
-                            color = activeTheme.accent,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 1.4.sp
-                        )
-                        Text(
-                            text = "System & Display Controls",
-                            color = activeTheme.textMuted,
-                            fontSize = 12.sp
-                        )
-                    }
-                    val chargeLabel = if (health.isCharging) "Charging ${health.wattsEstimate}W" else "Discharging"
-                    Surface(
-                        color = activeTheme.surfaceElevated,
-                        shape = RoundedCornerShape(8.dp),
-                        border = BorderStroke(
-                            1.dp,
-                            if (health.isThermalWarning) Color(0xFFF59E0B).copy(alpha = 0.6f) else activeTheme.borderSubtle
-                        )
-                    ) {
-                        Text(
-                            text = "${health.batteryPercent}% • ${String.format(Locale.US, "%.1f", health.temperatureC)}°C • $chargeLabel",
-                            color = if (health.isThermalWarning) Color(0xFFFBBF24) else activeTheme.textSecondary,
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                        )
-                    }
-                }
-
-                // Media Volume section with live progress bar
-                Surface(
-                    color = activeTheme.surfaceElevated,
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, activeTheme.borderSubtle)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Media Volume",
-                                color = activeTheme.textPrimary,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = if (isMuted) "MUTED ($volumePct%)" else "$volumePct%",
-                                color = if (isMuted) Color(0xFFF87171) else activeTheme.accent,
-                                fontSize = 12.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(4.dp)
-                                .clip(RoundedCornerShape(50))
-                                .background(activeTheme.borderSubtle)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .fillMaxWidth(fraction = (volumePct / 100f).coerceIn(0f, 1f))
-                                    .clip(RoundedCornerShape(50))
-                                    .background(if (isMuted) activeTheme.textMuted else activeTheme.accent)
-                            )
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            QuickMenuButton(
-                                label = "Vol -",
-                                badge = null,
-                                isSelected = (selectedIndex == 0),
-                                theme = activeTheme,
-                                modifier = Modifier.weight(1f),
-                                onClick = {
-                                    onSelectIndex(0)
-                                    audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0)
-                                    volumePct = readVolumePct(audioManager)
-                                    isMuted = audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
-                                }
-                            )
-                            QuickMenuButton(
-                                label = "Vol +",
-                                badge = null,
-                                isSelected = (selectedIndex == 1),
-                                theme = activeTheme,
-                                modifier = Modifier.weight(1f),
-                                onClick = {
-                                    onSelectIndex(1)
-                                    audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0)
-                                    volumePct = readVolumePct(audioManager)
-                                    isMuted = audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
-                                }
-                            )
-                            QuickMenuButton(
-                                label = if (isMuted) "Unmute" else "Mute",
-                                badge = null,
-                                isSelected = (selectedIndex == 2),
-                                theme = activeTheme,
-                                modifier = Modifier.weight(1f),
-                                onClick = {
-                                    onSelectIndex(2)
-                                    audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, 0)
-                                    volumePct = readVolumePct(audioManager)
-                                    isMuted = audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
-                                }
-                            )
-                        }
-                    }
-                }
-
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.heightIn(max = 370.dp),
-                    verticalArrangement = Arrangement.spacedBy(7.dp)
-                ) {
-                    itemsIndexed(rows, key = { _, item -> item.index }) { _, spec ->
-                        QuickMenuButton(
-                            label = spec.title,
-                            badge = spec.badge,
-                            badgePositive = spec.badgePositive,
-                            isSelected = (selectedIndex == spec.index),
-                            theme = activeTheme,
-                            modifier = Modifier.fillMaxWidth(),
-                            onClick = spec.onClick
-                        )
-                    }
-                }
-
-                Text(
-                    text = "D-Pad / L1-R1 Navigate  •  A Select  •  B Close",
-                    color = activeTheme.textMuted,
-                    fontSize = 11.sp
-                )
-            }
-        }
-    }
-}
-
 /** Glasses screen size: 100 → 90 → 80 → 70 → 60 → 100. Applies to apps opened from now on. */
 private var screenSizeTick by mutableIntStateOf(0)
 private fun cycleGlassesScreenSize() {
@@ -1844,73 +1616,6 @@ private fun cycleGlassesScreenSize() {
     val next = sizes[(sizes.indexOf(prefs.glassesScreenSizePct).coerceAtLeast(0) + 1) % sizes.size]
     prefs.glassesScreenSizePct = next
     screenSizeTick++
-}
-
-@Composable
-private fun QuickMenuButton(
-    label: String,
-    badge: String?,
-    isSelected: Boolean,
-    theme: HubTheme,
-    modifier: Modifier = Modifier,
-    badgePositive: Boolean = false,
-    onClick: () -> Unit
-) {
-    val context = LocalContext.current
-
-    Surface(
-        color = if (isSelected) theme.focusGlow.copy(alpha = 0.30f) else theme.surfaceElevated,
-        shape = RoundedCornerShape(11.dp),
-        border = BorderStroke(
-            width = if (isSelected) 2.dp else 1.dp,
-            color = if (isSelected) theme.accent else theme.borderSubtle
-        ),
-        modifier = modifier.clickable {
-            SwitchAudioFeedback.playSelect(context)
-            onClick()
-        }
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = if (badge == null) Arrangement.Center else Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = label,
-                color = if (isSelected) theme.textPrimary else theme.textPrimary.copy(alpha = 0.90f),
-                fontSize = 13.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = if (badge != null) Modifier.weight(1f).padding(end = 10.dp) else Modifier
-            )
-            if (badge != null) {
-                Surface(
-                    color = when {
-                        badgePositive -> theme.accent.copy(alpha = 0.16f)
-                        isSelected -> Color.White.copy(alpha = 0.12f)
-                        else -> Color.White.copy(alpha = 0.06f)
-                    },
-                    shape = RoundedCornerShape(6.dp),
-                    border = BorderStroke(
-                        1.dp,
-                        if (badgePositive) theme.accent.copy(alpha = 0.50f) else theme.borderSubtle
-                    )
-                ) {
-                    Text(
-                        text = badge,
-                        color = if (badgePositive) theme.accent else theme.textSecondary,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                    )
-                }
-            }
-        }
-    }
 }
 
 private fun readVolumePct(audioManager: AudioManager): Int {

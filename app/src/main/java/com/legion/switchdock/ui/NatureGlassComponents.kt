@@ -1278,7 +1278,8 @@ fun NatureGlassBottomHintBar(
     onPin: () -> Unit,
     onAllApps: () -> Unit,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showPinAction: Boolean = true
 ) {
     Box(
         modifier = modifier
@@ -1343,14 +1344,16 @@ fun NatureGlassBottomHintBar(
                     enabled = true,
                     onClick = onOpen
                 )
-                HintDivider()
-                ControllerHintChip(
-                    key = "X",
-                    label = pinLabel ?: "Pin",
-                    badgeColor = NatureGlassColors.BadgeX,
-                    enabled = pinLabel != null,
-                    onClick = onPin
-                )
+                if (showPinAction) {
+                    HintDivider()
+                    ControllerHintChip(
+                        key = "X",
+                        label = pinLabel ?: "Pin",
+                        badgeColor = NatureGlassColors.BadgeX,
+                        enabled = pinLabel != null,
+                        onClick = onPin
+                    )
+                }
                 HintDivider()
                 ControllerHintChip(
                     key = "Y",
